@@ -316,12 +316,15 @@ public actor GobyTerminalWorkflow {
                 return 0
             }
             let state = try await client.snapshot()
-            let ids = args.dropFirst().map(ProjectID.init(rawValue:))
-            guard Set(ids).count == ids.count, ids.allSatisfy({ id in state.projects.contains(where: { $0.id == id }) }), state.plan == nil, state.draft.text.isEmpty else {
-                throw GobyTerminalError("Choose registered project IDs while no draft or plan is pending.")
+            // Names or IDs from goby projects both work.
+            let ids = try args.dropFirst().map { try projectID($0, in: state) }
+            guard Set(ids).count == ids.count, state.plan == nil, state.draft.text.isEmpty else {
+                throw GobyTerminalError("Choose each registered project once, while no draft or plan is pending.")
             }
             await preferences.select(ids)
-            try emit("scope", data: ids, text: "Explicit project scope saved for future requests. Use goby use cwd to return to the current repository.")
+            let names = ids.compactMap { id in state.projects.first { $0.id == id }?.name }.joined(separator: ", ")
+            try emit("scope", data: ids, text: "Explicit project scope saved for future requests. Use goby use cwd to return to the current repository.",
+                     styled: presenter.success("New requests go to \(names). /use cwd switches back to the current repository."))
             return 0
         case "status":
             try await status()
