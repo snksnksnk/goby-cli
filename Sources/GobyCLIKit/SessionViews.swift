@@ -160,7 +160,8 @@ public struct GobySessionViews: Sendable {
         lines.append(style.dim("  " + ([statusText(run.status)] + projects.map(safe) + ["\(run.assignments.count) agent(s)"] + providers
             + [duration(from: run.createdAt, to: run.status.isFinished ? run.updatedAt : now)]).joined(separator: " · ")))
         for assignment in run.assignments {
-            let agent = state.agents.first { $0.id == assignment.agentID }?.name ?? assignment.agentID.rawValue
+            let agent = state.agents.first { $0.id == assignment.agentID }?.name
+                ?? (assignment.agentID.rawValue.hasPrefix("temporary-agent") ? "Temporary agent" : assignment.agentID.rawValue)
             lines.append("")
             lines.append("  " + agentStatus(assignment.status) + " " + style.bold(safe(agent))
                 + style.dim(" · " + assignment.providerID.displayName + (assignment.model.map { " · \($0)" } ?? "")))
