@@ -1,0 +1,13 @@
+import __MODULE_NAME__Domain
+
+public struct LoadItemsUseCase: Sendable {
+    private let repository: any ItemRepository
+
+    public init(repository: any ItemRepository) {
+        self.repository = repository
+    }
+
+    public func callAsFunction() async throws -> [Item] {
+        try await repository.items()
+    }
+}

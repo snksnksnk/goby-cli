@@ -1,0 +1,35 @@
+.DS_Store
+._*
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Local configuration and secrets
+.env
+.env.*
+*.local
+*.p8
+*.p12
+*.pem
+*.key
+*.cer
+*.mobileprovision
+
+# Logs and generated runtime data
+*.log
+Helpers/ClaudeAgentSDK/node_modules/
+Helpers/ClaudeAgentSDK/dist/
+Helpers/CopilotSDK/node_modules/
+Helpers/CopilotSDK/dist/
+Helpers/ProviderRuntime/
+
+# Local release artifacts and notarization state
+*.notarytool-upload
+notarytool-history.json
+
+# CLI runtime constants are generated from signed release payloads.
+Sources/GobyInfrastructure/GeneratedCLIProviderManifest.swift
+
+# Python release-script bytecode
+__pycache__/

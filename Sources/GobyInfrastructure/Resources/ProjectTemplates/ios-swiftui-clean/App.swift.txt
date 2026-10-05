@@ -1,0 +1,20 @@
+import SwiftUI
+import __MODULE_NAME__Application
+import __MODULE_NAME__Infrastructure
+import __MODULE_NAME__Presentation
+
+@main
+struct __MODULE_NAME__App: App {
+    @State private var store: AppStore
+
+    init() {
+        let repository = InMemoryItemRepository()
+        _store = State(initialValue: AppStore(loadItems: LoadItemsUseCase(repository: repository)))
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            RootView(store: store)
+        }
+    }
+}

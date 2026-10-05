@@ -1,0 +1,20 @@
+// swift-tools-version: 6.2
+
+import PackageDescription
+
+let package = Package(
+    name: "__MODULE_NAME__",
+    platforms: [.macOS(.v15), .iOS(.v18)],
+    products: [
+        .library(name: "__MODULE_NAME__Domain", targets: ["__MODULE_NAME__Domain"]),
+        .library(name: "__MODULE_NAME__Application", targets: ["__MODULE_NAME__Application"]),
+        .library(name: "__MODULE_NAME__Infrastructure", targets: ["__MODULE_NAME__Infrastructure"]),
+    ],
+    targets: [
+        .target(name: "__MODULE_NAME__Domain"),
+        .target(name: "__MODULE_NAME__Application", dependencies: ["__MODULE_NAME__Domain"]),
+        .target(name: "__MODULE_NAME__Infrastructure", dependencies: ["__MODULE_NAME__Domain", "__MODULE_NAME__Application"]),
+        .testTarget(name: "__MODULE_NAME__ApplicationTests", dependencies: ["__MODULE_NAME__Domain", "__MODULE_NAME__Application"]),
+    ],
+    swiftLanguageModes: [.v6]
+)

@@ -1,0 +1,8 @@
+# Project instructions
+
+- Keep dependencies pointing inward: Infrastructure → Application → Domain.
+- Use Swift 6 strict concurrency and keep public values `Sendable` where practical.
+- Keep mutable repositories and services actor-isolated.
+- Inject infrastructure through Application protocols; do not use global service locators.
+- Add behavioral coverage with Swift Testing.
+- Never commit secrets or build products.

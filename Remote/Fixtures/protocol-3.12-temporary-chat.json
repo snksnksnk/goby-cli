@@ -1,0 +1,27 @@
+{
+  "current": {
+    "id": "host-demo",
+    "displayName": "Demo Mac",
+    "reachability": "online",
+    "lastUpdatedAt": 1790784000000,
+    "temporaryChat": {
+      "id": "chat-demo",
+      "providerID": "codex",
+      "model": "gpt-demo",
+      "status": "answering",
+      "messages": [
+        { "id": "m1", "role": "user", "text": "What is 17 × 23?", "createdAt": 1790784000000 },
+        { "id": "m2", "role": "assistant", "text": "**391**", "createdAt": 1790784001000 }
+      ],
+      "omittedMessageCount": 0,
+      "startedAt": 1790784000000,
+      "updatedAt": 1790784001000
+    }
+  },
+  "legacy": {
+    "id": "host-demo",
+    "displayName": "Demo Mac",
+    "reachability": "online",
+    "lastUpdatedAt": 1790784000000
+  }
+}

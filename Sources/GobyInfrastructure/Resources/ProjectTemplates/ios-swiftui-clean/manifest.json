@@ -1,0 +1,26 @@
+{
+  "id": "ios-swiftui-clean",
+  "version": 1,
+  "testCommands": [
+    "swift test --package-path AppCore",
+    "xcodebuild -project '__MODULE_NAME__.xcodeproj' -scheme '__MODULE_NAME__' -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build-for-testing"
+  ],
+  "instructionRelativePaths": ["AGENTS.md"],
+  "files": [
+    {"source": "project.pbxproj.txt", "destination": "__MODULE_NAME__.xcodeproj/project.pbxproj"},
+    {"source": "scheme.xcscheme.txt", "destination": "__MODULE_NAME__.xcodeproj/xcshareddata/xcschemes/__MODULE_NAME__.xcscheme"},
+    {"source": "App.swift.txt", "destination": "App/__MODULE_NAME__App.swift"},
+    {"source": "Package.swift.txt", "destination": "AppCore/Package.swift"},
+    {"source": "Item.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Domain/Item.swift"},
+    {"source": "ItemRepository.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Application/ItemRepository.swift"},
+    {"source": "LoadItemsUseCase.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Application/LoadItemsUseCase.swift"},
+    {"source": "InMemoryItemRepository.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Infrastructure/InMemoryItemRepository.swift"},
+    {"source": "AppStore.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Presentation/AppStore.swift"},
+    {"source": "RootView.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Presentation/RootView.swift"},
+    {"source": "LoadItemsUseCaseTests.swift.txt", "destination": "AppCore/Tests/__MODULE_NAME__ApplicationTests/LoadItemsUseCaseTests.swift"},
+    {"source": "AppUITests.swift.txt", "destination": "AppUITests/__MODULE_NAME__UITests.swift"},
+    {"source": "README.md.txt", "destination": "README.md"},
+    {"source": "AGENTS.md.txt", "destination": "AGENTS.md"},
+    {"source": "gitignore.txt", "destination": ".gitignore"}
+  ]
+}

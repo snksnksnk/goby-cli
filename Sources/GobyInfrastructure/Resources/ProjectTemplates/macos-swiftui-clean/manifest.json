@@ -1,0 +1,26 @@
+{
+  "id": "macos-swiftui-clean",
+  "version": 1,
+  "testCommands": [
+    "swift test --package-path AppCore",
+    "xcodebuild -project '__MODULE_NAME__.xcodeproj' -scheme '__MODULE_NAME__' -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build-for-testing"
+  ],
+  "instructionRelativePaths": ["AGENTS.md"],
+  "files": [
+    {"source": "ios-swiftui-clean/project.pbxproj.txt", "destination": "__MODULE_NAME__.xcodeproj/project.pbxproj"},
+    {"source": "ios-swiftui-clean/scheme.xcscheme.txt", "destination": "__MODULE_NAME__.xcodeproj/xcshareddata/xcschemes/__MODULE_NAME__.xcscheme"},
+    {"source": "ios-swiftui-clean/App.swift.txt", "destination": "App/__MODULE_NAME__App.swift"},
+    {"source": "ios-swiftui-clean/Package.swift.txt", "destination": "AppCore/Package.swift"},
+    {"source": "ios-swiftui-clean/Item.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Domain/Item.swift"},
+    {"source": "ios-swiftui-clean/ItemRepository.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Application/ItemRepository.swift"},
+    {"source": "ios-swiftui-clean/LoadItemsUseCase.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Application/LoadItemsUseCase.swift"},
+    {"source": "ios-swiftui-clean/InMemoryItemRepository.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Infrastructure/InMemoryItemRepository.swift"},
+    {"source": "ios-swiftui-clean/AppStore.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Presentation/AppStore.swift"},
+    {"source": "ios-swiftui-clean/RootView.swift.txt", "destination": "AppCore/Sources/__MODULE_NAME__Presentation/RootView.swift"},
+    {"source": "ios-swiftui-clean/LoadItemsUseCaseTests.swift.txt", "destination": "AppCore/Tests/__MODULE_NAME__ApplicationTests/LoadItemsUseCaseTests.swift"},
+    {"source": "ios-swiftui-clean/AppUITests.swift.txt", "destination": "AppUITests/__MODULE_NAME__UITests.swift"},
+    {"source": "README.md.txt", "destination": "README.md"},
+    {"source": "ios-swiftui-clean/AGENTS.md.txt", "destination": "AGENTS.md"},
+    {"source": "ios-swiftui-clean/gitignore.txt", "destination": ".gitignore"}
+  ]
+}

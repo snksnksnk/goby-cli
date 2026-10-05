@@ -1,0 +1,18 @@
+import Testing
+import __MODULE_NAME__Application
+import __MODULE_NAME__Domain
+
+@Suite("Load items")
+struct LoadItemsUseCaseTests {
+    @Test("Returns repository values")
+    func returnsRepositoryValues() async throws {
+        let expected = [Item(title: "First")]
+        let result = try await LoadItemsUseCase(repository: StubRepository(values: expected))()
+        #expect(result == expected)
+    }
+}
+
+private struct StubRepository: ItemRepository {
+    let values: [Item]
+    func items() async throws -> [Item] { values }
+}

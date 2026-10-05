@@ -1,0 +1,9 @@
+# Project instructions
+
+- Use Swift 6 language mode with complete strict-concurrency checking.
+- Preserve the dependency direction: Presentation → Application → Domain; Infrastructure implements Application ports.
+- Keep domain models immutable and `Sendable` where practical.
+- Use `@Observable` and `@MainActor` for presentation stores and actors for shared mutable state.
+- Inject dependencies from the app composition root. Do not add global service locators.
+- Use Swift Testing for unit and integration tests. Keep XCTest for UI automation and performance tests.
+- Do not store API keys, signing identities, profiles, build products, or local user state in Git.

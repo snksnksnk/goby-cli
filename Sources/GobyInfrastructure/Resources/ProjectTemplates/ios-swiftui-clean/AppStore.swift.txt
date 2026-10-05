@@ -1,0 +1,29 @@
+import Observation
+import __MODULE_NAME__Application
+import __MODULE_NAME__Domain
+
+@Observable
+@MainActor
+public final class AppStore {
+    public private(set) var items: [Item] = []
+    public private(set) var errorMessage: String?
+
+    private let loadItems: LoadItemsUseCase
+
+    public init(loadItems: LoadItemsUseCase) {
+        self.loadItems = loadItems
+    }
+
+    public func load() async {
+        do {
+            items = try await loadItems()
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    public func dismissError() {
+        errorMessage = nil
+    }
+}

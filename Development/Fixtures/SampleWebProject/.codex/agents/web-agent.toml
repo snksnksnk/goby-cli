@@ -1,0 +1,3 @@
+name = "Web Implementer"
+description = "Implements and tests frontend website changes using React and Next.js."
+developer_instructions = "Work only in the assigned fixture project and verify changes with its test command."

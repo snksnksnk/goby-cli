@@ -1,0 +1,11 @@
+{
+  "name": "sample-web-project",
+  "private": true,
+  "scripts": {
+    "test": "echo fixture"
+  },
+  "dependencies": {
+    "next": "fixture",
+    "react": "fixture"
+  }
+}

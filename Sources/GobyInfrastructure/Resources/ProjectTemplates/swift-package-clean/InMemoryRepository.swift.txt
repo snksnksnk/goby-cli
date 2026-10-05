@@ -1,0 +1,14 @@
+import __MODULE_NAME__Application
+import __MODULE_NAME__Domain
+
+public actor InMemoryEntityRepository: EntityRepository {
+    private var values: [Entity]
+
+    public init(values: [Entity] = []) {
+        self.values = values
+    }
+
+    public func entities() -> [Entity] {
+        values
+    }
+}

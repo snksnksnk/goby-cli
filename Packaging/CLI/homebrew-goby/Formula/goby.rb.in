@@ -1,0 +1,45 @@
+class Goby < Formula
+  desc "Local agent host and terminal workflow for your repositories"
+  homepage "https://github.com/snksnksnk/goby-cli"
+  url "https://github.com/snksnksnk/goby-cli/releases/download/goby-v@VERSION@/goby-@VERSION@-universal.tar.gz"
+  version "@VERSION@"
+  sha256 "@SHA256@"
+  license "MIT"
+  depends_on :macos
+  depends_on macos: :tahoe
+
+  def install
+    bin.install "bin/goby"
+    libexec.install "libexec/provider-runtime"
+    # SwiftPM's module bundle accessor searches beside the executable.
+    Pathname.glob("bin/*.bundle").each { |bundle| bin.install bundle }
+    bash_completion.install "completions/goby.bash" => "goby"
+    zsh_completion.install "completions/_goby"
+    fish_completion.install "completions/goby.fish"
+    pkgshare.install "README.md", "LICENSE", "ProviderRuntime.sha256.json", "SourceCommit.txt"
+  end
+
+  service do
+    run [opt_bin/"goby", "host", "run", "--stay-alive"]
+    keep_alive true
+    working_dir Dir.home
+    log_path var/"log/goby.log"
+    error_log_path var/"log/goby.log"
+  end
+
+  def caveats
+    <<~EOS
+      Run goby doctor, then goby login codex|claude|copilot.
+      Claude uses an Anthropic API key. CLI data and Keychain items are separate
+      from the Goby app and survive uninstall. Data:
+        ~/Library/Application Support/Goby CLI/
+      For automations: brew services start goby
+      Before uninstall: finish active work, then goby uninstall
+    EOS
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/goby --version")
+    assert_match "Exit codes:", shell_output("#{bin}/goby --help")
+  end
+end

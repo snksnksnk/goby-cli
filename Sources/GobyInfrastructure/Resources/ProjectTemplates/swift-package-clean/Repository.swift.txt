@@ -1,0 +1,5 @@
+import __MODULE_NAME__Domain
+
+public protocol EntityRepository: Sendable {
+    func entities() async throws -> [Entity]
+}

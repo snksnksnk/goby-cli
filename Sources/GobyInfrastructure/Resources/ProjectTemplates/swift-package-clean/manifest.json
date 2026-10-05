@@ -1,0 +1,17 @@
+{
+  "id": "swift-package-clean",
+  "version": 1,
+  "testCommands": ["swift test"],
+  "instructionRelativePaths": ["AGENTS.md"],
+  "files": [
+    {"source": "Package.swift.txt", "destination": "Package.swift"},
+    {"source": "Entity.swift.txt", "destination": "Sources/__MODULE_NAME__Domain/Entity.swift"},
+    {"source": "Repository.swift.txt", "destination": "Sources/__MODULE_NAME__Application/Repository.swift"},
+    {"source": "LoadEntities.swift.txt", "destination": "Sources/__MODULE_NAME__Application/LoadEntities.swift"},
+    {"source": "InMemoryRepository.swift.txt", "destination": "Sources/__MODULE_NAME__Infrastructure/InMemoryRepository.swift"},
+    {"source": "LoadEntitiesTests.swift.txt", "destination": "Tests/__MODULE_NAME__ApplicationTests/LoadEntitiesTests.swift"},
+    {"source": "README.md.txt", "destination": "README.md"},
+    {"source": "AGENTS.md.txt", "destination": "AGENTS.md"},
+    {"source": "gitignore.txt", "destination": ".gitignore"}
+  ]
+}

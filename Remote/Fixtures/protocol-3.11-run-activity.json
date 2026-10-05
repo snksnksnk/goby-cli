@@ -1,0 +1,51 @@
+{
+  "current": {
+    "id": "run-growth",
+    "goal": "Make a plan to gain more users",
+    "risk": "readOnly",
+    "status": "running",
+    "assignments": [],
+    "journal": [],
+    "activity": [
+      {
+        "id": "message-1",
+        "assignmentID": "assignment-1",
+        "kind": "message",
+        "title": "I'll check the analytics first.",
+        "status": "succeeded",
+        "startedAt": 1789590000000,
+        "finishedAt": 1789590000000
+      },
+      {
+        "id": "item-7",
+        "assignmentID": "assignment-1",
+        "kind": "read",
+        "title": "Read SEO_OPERATIONS.md",
+        "status": "succeeded",
+        "exitCode": 0,
+        "startedAt": 1789590005000,
+        "finishedAt": 1789590006000
+      },
+      {
+        "id": "item-9",
+        "assignmentID": "assignment-1",
+        "kind": "holographicCall",
+        "title": "A step kind from a newer Mac",
+        "status": "running",
+        "startedAt": 1789590010000
+      }
+    ],
+    "createdAt": 1789589990000,
+    "updatedAt": 1789590010000
+  },
+  "legacy": {
+    "id": "run-legacy",
+    "goal": "Review the release",
+    "risk": "readOnly",
+    "status": "completed",
+    "assignments": [],
+    "journal": [],
+    "createdAt": 1789589000000,
+    "updatedAt": 1789589100000
+  }
+}

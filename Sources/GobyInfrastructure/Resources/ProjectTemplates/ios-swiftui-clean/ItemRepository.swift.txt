@@ -1,0 +1,5 @@
+import __MODULE_NAME__Domain
+
+public protocol ItemRepository: Sendable {
+    func items() async throws -> [Item]
+}

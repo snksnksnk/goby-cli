@@ -1,0 +1,18 @@
+import Testing
+import __MODULE_NAME__Application
+import __MODULE_NAME__Domain
+
+@Suite("Load entities")
+struct LoadEntitiesTests {
+    @Test("Returns repository values")
+    func returnsValues() async throws {
+        let expected = [Entity(name: "Example")]
+        let result = try await LoadEntities(repository: StubRepository(values: expected))()
+        #expect(result == expected)
+    }
+}
+
+private struct StubRepository: EntityRepository {
+    let values: [Entity]
+    func entities() async throws -> [Entity] { values }
+}

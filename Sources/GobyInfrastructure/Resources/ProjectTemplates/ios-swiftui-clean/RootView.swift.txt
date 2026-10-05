@@ -1,0 +1,32 @@
+import SwiftUI
+
+public struct RootView: View {
+    @Bindable private var store: AppStore
+
+    public init(store: AppStore) {
+        self.store = store
+    }
+
+    public var body: some View {
+        NavigationStack {
+            List(store.items) { item in
+                Label(item.title, systemImage: "checkmark.circle.fill")
+            }
+            .navigationTitle("__PROJECT_NAME__")
+            .overlay {
+                if store.items.isEmpty, store.errorMessage == nil {
+                    ContentUnavailableView("No items", systemImage: "tray")
+                }
+            }
+        }
+        .task { await store.load() }
+        .alert("Couldn’t Load", isPresented: Binding(
+            get: { store.errorMessage != nil },
+            set: { if !$0 { store.dismissError() } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(store.errorMessage ?? "Unknown error")
+        }
+    }
+}

@@ -1,0 +1,60 @@
+# Goby CLI
+
+`goby` runs Goby's agent host on your own Mac, from the terminal, for your own
+repositories, with your own Codex, Claude (API key) or GitHub Copilot account.
+It does not need the Goby app, the relay, or anyone else's Mac.
+
+Requires macOS 26 or later.
+
+```sh
+goby doctor                         # check providers and the bundled runtime
+goby login codex                    # or: claude (API key) | copilot
+cd ~/code/my-app
+goby "fix the flaky login test"     # plan → confirm scope → run → one result
+goby status | watch | result <run> | diff <run>
+goby approve <id> | deny <id>
+goby pause | resume | cancel <run>
+```
+
+The full user guide is in [Docs/Beta/CLI_GUIDE.md](Docs/Beta/CLI_GUIDE.md).
+The design and its verification history are in
+[Docs/Architecture/ADR-024-STANDALONE-CLI-HOST.md](Docs/Architecture/ADR-024-STANDALONE-CLI-HOST.md).
+
+## Build from source
+
+```sh
+swift build -c release --product goby
+Scripts/test-swift-package.sh
+```
+
+A source build runs with Codex. Claude and Copilot need the bundled, pinned
+provider runtime, which only the release build produces; source builds refuse
+them on purpose.
+
+## Release
+
+```sh
+Scripts/release-cli.sh --preflight     # signing identity and notary profile
+Scripts/release-cli.sh                 # signed, notarized universal artifacts + formula
+Scripts/publish-cli-release.sh --publish <artifact-directory>
+```
+
+Packaging never publishes. Publishing needs an already-pushed `goby-v<version>`
+tag that matches the artifact's source commit. The open release gates are in
+[Docs/Beta/CLI_RELEASE_CHECKLIST.md](Docs/Beta/CLI_RELEASE_CHECKLIST.md).
+
+## Layout
+
+| Path | Contents |
+|---|---|
+| `Sources/GobyCLI`, `Sources/GobyCLIKit` | the `goby` executable, terminal workflow, socket host |
+| `Sources/GobyHostCore` | the headless host engine shared with the Goby app |
+| `Sources/GobyDomain` … `GobyOperations` | domain, use cases, providers, Git, persistence |
+| `Helpers/` | Claude and Copilot Node bridges (pinned) |
+| `Packaging/CLI/` | Homebrew formula template and shell completions |
+| `Scripts/` | release, signing, manifest and verification scripts |
+
+## License
+
+MIT. See [LICENSE](LICENSE). Codex, ChatGPT, Claude, GitHub Copilot and macOS
+are trademarks of their owners; Goby is an independent project.

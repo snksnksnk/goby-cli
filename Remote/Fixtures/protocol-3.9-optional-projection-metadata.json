@@ -1,0 +1,62 @@
+{
+  "providerAccounts": [
+    {
+      "providerID": "codex",
+      "connectionState": {
+        "connected": {
+          "version": "fixture"
+        }
+      },
+      "availableModels": [],
+      "usage": [],
+      "observedAt": 1789590000000,
+      "activityFreshness": {
+        "lastSuccessfulAt": 1789589880000,
+        "staleSince": 1789589940000
+      }
+    },
+    {
+      "providerID": "claude",
+      "connectionState": {
+        "failed": {
+          "message": "Fixture offline"
+        }
+      },
+      "availableModels": [],
+      "usage": [],
+      "observedAt": 1789590000000,
+      "credentialConfigured": true
+    },
+    {
+      "providerID": "github-copilot",
+      "connectionState": {
+        "notChecked": {}
+      },
+      "availableModels": [],
+      "usage": [],
+      "observedAt": 1789590000000
+    }
+  ],
+  "hosts": [
+    {
+      "id": "history-host",
+      "displayName": "Fixture Mac",
+      "reachability": "online",
+      "lastUpdatedAt": 1789590000000,
+      "omittedHistoryRunCount": 225,
+      "omittedAutomationOccurrenceCount": 10
+    },
+    {
+      "id": "legacy-host",
+      "displayName": "Legacy Fixture Mac",
+      "reachability": "offline",
+      "lastUpdatedAt": 1789590000000
+    }
+  ],
+  "projectSnapshot": [
+    {
+      "id": "retained-demo-project",
+      "name": "Archived Demo"
+    }
+  ]
+}

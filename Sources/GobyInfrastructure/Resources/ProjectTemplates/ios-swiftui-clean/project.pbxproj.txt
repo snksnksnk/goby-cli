@@ -1,0 +1,169 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* __MODULE_NAME__App.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* __MODULE_NAME__App.swift */; };
+		A10000000000000000000002 /* __MODULE_NAME__Application in Frameworks */ = {isa = PBXBuildFile; productRef = J10000000000000000000001 /* __MODULE_NAME__Application */; };
+		A10000000000000000000003 /* __MODULE_NAME__Infrastructure in Frameworks */ = {isa = PBXBuildFile; productRef = J10000000000000000000002 /* __MODULE_NAME__Infrastructure */; };
+		A10000000000000000000004 /* __MODULE_NAME__Presentation in Frameworks */ = {isa = PBXBuildFile; productRef = J10000000000000000000003 /* __MODULE_NAME__Presentation */; };
+		A10000000000000000000005 /* __MODULE_NAME__UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* __MODULE_NAME__UITests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		K10000000000000000000001 /* PBXContainerItemProxy */ = {isa = PBXContainerItemProxy; containerPortal = F10000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = E10000000000000000000001; remoteInfo = __MODULE_NAME__; };
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		B10000000000000000000001 /* __MODULE_NAME__App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = __MODULE_NAME__App.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* __MODULE_NAME__.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = __MODULE_NAME__.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000003 /* __MODULE_NAME__UITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = __MODULE_NAME__UITests.swift; sourceTree = "<group>"; };
+		B10000000000000000000004 /* __MODULE_NAME__UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = __MODULE_NAME__UITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D10000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000002 /* __MODULE_NAME__Application in Frameworks */,
+				A10000000000000000000003 /* __MODULE_NAME__Infrastructure in Frameworks */,
+				A10000000000000000000004 /* __MODULE_NAME__Presentation in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D10000000000000000000004 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C10000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				C10000000000000000000002 /* App */,
+				C10000000000000000000004 /* AppUITests */,
+				C10000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C10000000000000000000002 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000001 /* __MODULE_NAME__App.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000002 /* __MODULE_NAME__.app */,
+				B10000000000000000000004 /* __MODULE_NAME__UITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000004 /* AppUITests */ = {isa = PBXGroup; children = (B10000000000000000000003 /* __MODULE_NAME__UITests.swift */,); path = AppUITests; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E10000000000000000000001 /* __MODULE_NAME__ */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = H10000000000000000000002 /* Build configuration list for PBXNativeTarget "__MODULE_NAME__" */;
+			buildPhases = (
+				D10000000000000000000002 /* Sources */,
+				D10000000000000000000001 /* Frameworks */,
+				D10000000000000000000003 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = __MODULE_NAME__;
+			packageProductDependencies = (
+				J10000000000000000000001 /* __MODULE_NAME__Application */,
+				J10000000000000000000002 /* __MODULE_NAME__Infrastructure */,
+				J10000000000000000000003 /* __MODULE_NAME__Presentation */,
+			);
+			productName = __MODULE_NAME__;
+			productReference = B10000000000000000000002 /* __MODULE_NAME__.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E10000000000000000000002 /* __MODULE_NAME__UITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = H10000000000000000000003 /* Build configuration list for PBXNativeTarget "__MODULE_NAME__UITests" */;
+			buildPhases = (D10000000000000000000005 /* Sources */, D10000000000000000000004 /* Frameworks */, D10000000000000000000006 /* Resources */,);
+			buildRules = ();
+			dependencies = (L10000000000000000000001 /* PBXTargetDependency */,);
+			name = __MODULE_NAME__UITests;
+			productName = __MODULE_NAME__UITests;
+			productReference = B10000000000000000000004 /* __MODULE_NAME__UITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F10000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = { E10000000000000000000001 = { CreatedOnToolsVersion = 27.0; }; E10000000000000000000002 = { CreatedOnToolsVersion = 27.0; TestTargetID = E10000000000000000000001; }; };
+			};
+			buildConfigurationList = H10000000000000000000001 /* Build configuration list for PBXProject "__MODULE_NAME__" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = C10000000000000000000001;
+			packageReferences = (I10000000000000000000001 /* XCLocalSwiftPackageReference "AppCore" */);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C10000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (E10000000000000000000001 /* __MODULE_NAME__ */, E10000000000000000000002 /* __MODULE_NAME__UITests */);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		D10000000000000000000006 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D10000000000000000000002 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001 /* __MODULE_NAME__App.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		D10000000000000000000005 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000005 /* __MODULE_NAME__UITests.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		L10000000000000000000001 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = E10000000000000000000001 /* __MODULE_NAME__ */; targetProxy = K10000000000000000000001 /* PBXContainerItemProxy */; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		G10000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; ONLY_ACTIVE_ARCH = YES; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; }; name = Debug; };
+		G10000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; }; name = Release; };
+		G10000000000000000000003 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {__APP_DEBUG_BUILD_SETTINGS__}; name = Debug; };
+		G10000000000000000000004 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {__APP_RELEASE_BUILD_SETTINGS__}; name = Release; };
+		G10000000000000000000005 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {__UI_TEST_DEBUG_BUILD_SETTINGS__}; name = Debug; };
+		G10000000000000000000006 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {__UI_TEST_RELEASE_BUILD_SETTINGS__}; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		H10000000000000000000001 /* Build configuration list for PBXProject "__MODULE_NAME__" */ = {isa = XCConfigurationList; buildConfigurations = (G10000000000000000000001 /* Debug */, G10000000000000000000002 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		H10000000000000000000002 /* Build configuration list for PBXNativeTarget "__MODULE_NAME__" */ = {isa = XCConfigurationList; buildConfigurations = (G10000000000000000000003 /* Debug */, G10000000000000000000004 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		H10000000000000000000003 /* Build configuration list for PBXNativeTarget "__MODULE_NAME__UITests" */ = {isa = XCConfigurationList; buildConfigurations = (G10000000000000000000005 /* Debug */, G10000000000000000000006 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		I10000000000000000000001 /* XCLocalSwiftPackageReference "AppCore" */ = {isa = XCLocalSwiftPackageReference; relativePath = AppCore; };
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		J10000000000000000000001 /* __MODULE_NAME__Application */ = {isa = XCSwiftPackageProductDependency; package = I10000000000000000000001 /* XCLocalSwiftPackageReference "AppCore" */; productName = __MODULE_NAME__Application; };
+		J10000000000000000000002 /* __MODULE_NAME__Infrastructure */ = {isa = XCSwiftPackageProductDependency; package = I10000000000000000000001 /* XCLocalSwiftPackageReference "AppCore" */; productName = __MODULE_NAME__Infrastructure; };
+		J10000000000000000000003 /* __MODULE_NAME__Presentation */ = {isa = XCSwiftPackageProductDependency; package = I10000000000000000000001 /* XCLocalSwiftPackageReference "AppCore" */; productName = __MODULE_NAME__Presentation; };
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = F10000000000000000000001 /* Project object */;
+}

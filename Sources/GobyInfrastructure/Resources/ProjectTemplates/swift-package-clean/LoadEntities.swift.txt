@@ -1,0 +1,13 @@
+import __MODULE_NAME__Domain
+
+public struct LoadEntities: Sendable {
+    private let repository: any EntityRepository
+
+    public init(repository: any EntityRepository) {
+        self.repository = repository
+    }
+
+    public func callAsFunction() async throws -> [Entity] {
+        try await repository.entities()
+    }
+}

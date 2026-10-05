@@ -1,0 +1,12 @@
+#compdef goby
+local commands=(status projects add use run watch result diff log approve deny pause resume cancel follow-up commit push ask diagnostics doctor login logout import-agents uninstall automations automation host)
+_arguments '*:command or request:->command' '--json[Versioned JSON output]' '--verbose[Activity details]' '--yes[Approve the displayed scope]' '--provider[Provider]:provider:(codex claude copilot)' '--store[Separate CLI store]:directory:_files -/' '--help[Help]' '--version[Version]'
+if [[ $state == command ]]; then
+  if (( CURRENT == 2 )); then
+    compadd -- $commands
+  elif [[ $words[2] == host ]]; then
+    compadd -- run status stop --stay-alive
+  elif [[ $words[2] == login || $words[2] == logout ]]; then
+    compadd codex claude copilot
+  fi
+fi
