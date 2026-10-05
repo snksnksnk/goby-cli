@@ -54,6 +54,16 @@ final class StandaloneLocalAdministration: GADHostLocalAdministrationHandling {
             }
             let summary = try await delivery.execute(previewID: id, digest: digest)
             artifact = .localReceipt(.init(id: id, summary: try await commands.redactLocalOutput(summary, limit: 8_000), isUndoAvailable: false))
+        case let .inspectProjectGitBranches(projectID):
+            // Read-only Git inspection runs without approval (AGENTS.md).
+            let snapshot: ProjectGitBranchSnapshot
+            do { snapshot = try await store.inspectProjectGitBranches(projectID: projectID) }
+            catch { throw GADCommandFailure(.failedRecoverable, error.localizedDescription) }
+            var remote: String?
+            if let pushRemote = snapshot.pushRemote { remote = try await commands.redactLocalOutput(pushRemote, limit: 512) }
+            artifact = .projectGitBranches(.init(projectID: snapshot.projectID, currentBranch: snapshot.currentBranch,
+                localBranches: Array(snapshot.localBranches.prefix(512)), hasUncommittedChanges: snapshot.hasUncommittedChanges,
+                pushRemote: remote, changedFileCount: snapshot.changedFileCount))
         case let .providerCredentialChanged(providerID):
             guard await store.providerCredentialDidChange(providerID) else { try checkError(); throw GADCommandFailure(.failedRecoverable, "Provider refresh failed.") }
             artifact = .localReceipt(.init(id: UUID().uuidString, summary: "Refreshed the provider's credential state.", isUndoAvailable: false))

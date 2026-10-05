@@ -207,6 +207,17 @@ public struct GobyTerminalPresenter: Sendable {
     public func error(_ text: String) -> String { style.failure("✗ ") + safe(text) }
     public func farewell() -> String { style.dim(GobyPersona.mascot + " " + GobyPersona.pick(GobyPersona.farewells)) }
 
+    public func sessionHelp(_ commands: [(usage: String, summary: String)]) -> String {
+        let width = (commands.map(\.usage.count).max() ?? 10) + 2
+        var lines = [style.bold("What I can do")]
+        for command in commands {
+            lines.append("  " + style.accent(command.usage.padding(toLength: width, withPad: " ", startingAt: 0)) + style.dim(command.summary))
+        }
+        lines.append("")
+        lines.append(style.dim("Anything that isn't a /command is a request. Ctrl-C detaches from a run without cancelling it."))
+        return lines.joined(separator: "\n")
+    }
+
     public var help: String {
         [style.bold("In this session"),
          "  " + style.accent("/status") + style.dim("   runs, plans and approvals"),

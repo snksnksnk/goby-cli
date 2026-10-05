@@ -63,6 +63,31 @@ shows the repository and provider, and keeps taking requests at the `›` prompt
 until you type `/exit` (or press Ctrl-D). `/status` and `/help` work inside the
 session. Leaving the session never stops the host or a running request.
 
+Session commands mirror the Goby app's screens. Each is also a subcommand
+(`goby map`, `goby runs --json`, and so on):
+
+| Command | App equivalent |
+| --- | --- |
+| `/status` | Home: providers, active work, approvals, pending plan, next automation |
+| `/map` | Map and List: groups → projects → agents, each with a status symbol and word |
+| `/projects`, `/agents [project]` | Projects and Agents catalogs |
+| `/runs [project]`, `/show [run]` | Runs and a run's conversation |
+| `/diff [run]`, `/branches [project]` | A run's working-tree changes; Git branches and uncommitted changes |
+| `/automations` | Automations, with recent occurrences |
+| `/providers`, `/provider <name>`, `/model [name\|default]` | Provider Connections and the composer's provider and model choice for this session |
+| `/instructions`, `/resources`, `/groups`, `/handoffs`, `/health` | Instructions, Shared Folders, Project Groups, Handoffs and System Health |
+| `/approve`, `/deny`, `/pause`, `/resume`, `/cancel`, `/follow-up` | Run controls and approvals |
+| `/commit`, `/push`, `/ask`, `/use` | Delivery, Temporary Chat and default scope |
+
+Run IDs can be shortened to any unambiguous prefix, such as the eight
+characters `/runs` shows. Without an ID, `/show` and `/diff` use the active run,
+or the most recent one. An unknown `/word` is never sent to the provider as a
+request; a path such as `/Users/me/notes.md` inside a request still is.
+
+Creating projects from templates, editing agents and instruction packs, the
+spider-web map's layout, live previews and Remote Access pairing remain in the
+Goby app.
+
 Goby's character is a goby fish. In nature a goby keeps watch at the burrow
 while its partner shrimp digs; here Codex, Claude or Copilot do the digging and
 Goby scouts the repository, plans the work and stops to check with you before

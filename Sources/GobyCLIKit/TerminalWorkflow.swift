@@ -140,6 +140,10 @@ public actor GobyTerminalWorkflow {
     private let presenter: GobyTerminalPresenter
     private let spinner: GobySpinner
     private var providerName = "your agent"
+    /// Session choices made with /provider and /model; they apply to new requests.
+    private var sessionProvider: AgentProviderID?
+    private var sessionModel: String?
+    private var views: GobySessionViews { GobySessionViews(style: io.style) }
     /// Goby's character appears only in an interactive, colour-capable terminal.
     private var decorated: Bool { io.style.enabled && !options.json }
 
@@ -154,7 +158,7 @@ public actor GobyTerminalWorkflow {
     public func execute() async -> Int32 {
         do {
             session = try await client.connect()
-            let code = try await perform()
+            let code = try await perform(options.arguments)
             await client.disconnect()
             return code
         } catch {
@@ -166,12 +170,13 @@ public actor GobyTerminalWorkflow {
             return code
         }
     }
-    private func perform() async throws -> Int32 {
-        let args = options.arguments
+    private func perform(_ args: [String]) async throws -> Int32 {
         if let command = args.first {
             let bounds: ClosedRange<Int>?
             switch command {
-            case "status", "projects", "diagnostics", "import-agents", "automations": bounds = 1...1
+            case "status", "projects", "diagnostics", "import-agents", "automations", "home", "map", "tree",
+                 "providers", "instructions", "resources", "groups", "handoffs", "health": bounds = 1...1
+            case "agents", "runs", "models", "branches", "show": bounds = 1...2
             case "automation": bounds = 3...Int.max
             case "run", "approve", "deny", "result", "diff", "log", "host", "commit", "push": bounds = 2...2
             case "use": bounds = 2...17
@@ -186,8 +191,78 @@ public actor GobyTerminalWorkflow {
         }
         switch args.first {
         case "automations":
-            let snapshot = try await client.snapshot().automations
-            try emit("automations", data: snapshot, text: snapshot.definitions.map { "\($0.id.rawValue) · \($0.state.displayName) · \($0.name)" }.joined(separator: "\n"))
+            let state = try await client.snapshot()
+            let snapshot = state.automations
+            let plainList = snapshot.definitions.map { "\($0.id.rawValue) · \($0.state.displayName) · \($0.name)" }.joined(separator: "\n")
+            try emit("automations", data: snapshot, text: plainList.isEmpty ? GobySessionViews(style: .plain).automations(state) : plainList,
+                     styled: views.automations(state))
+            return 0
+        case "home":
+            let state = try await client.snapshot()
+            try emit("home", data: CLIStatusOutput(plan: state.plan, runs: state.runs.map(CLIRunOutput.init), approvals: state.approvals),
+                     text: GobySessionViews(style: .plain).overview(state), styled: views.overview(state))
+            return 0
+        case "map", "tree":
+            let state = try await client.snapshot()
+            try emit("map", data: CLIMapOutput(state), text: GobySessionViews(style: .plain).map(state), styled: views.map(state))
+            return 0
+        case "agents":
+            let state = try await client.snapshot()
+            let project = try args.count > 1 ? projectID(args[1], in: state) : nil
+            let agents = project.map { views.agents(in: $0, state: state) } ?? state.agents
+            try emit("agents", data: agents, text: GobySessionViews(style: .plain).agents(state, project: project), styled: views.agents(state, project: project))
+            return 0
+        case "runs":
+            let state = try await client.snapshot()
+            let project = try args.count > 1 ? projectID(args[1], in: state) : nil
+            try emit("runs", data: state.runs.map(CLIRunOutput.init), text: GobySessionViews(style: .plain).runs(state, project: project), styled: views.runs(state, project: project))
+            return 0
+        case "show":
+            let run = try await findRun(args.dropFirst().first)
+            let state = try await client.snapshot()
+            try emit("conversation", data: CLIRunOutput(run), text: GobySessionViews(style: .plain).conversation(run, state: state), styled: views.conversation(run, state: state))
+            return 0
+        case "providers":
+            let state = try await providerSnapshot()
+            let provider = try? await selectedProvider(in: state)
+            try emit("providers", data: state.providerAccounts, text: GobySessionViews(style: .plain).providers(state, selectedProvider: provider, model: sessionModel),
+                     styled: views.providers(state, selectedProvider: provider, model: sessionModel))
+            return 0
+        case "models":
+            let state = try await providerSnapshot()
+            let provider = try args.count > 1 ? Self.provider(named: args[1]) : try await selectedProvider(in: state)
+            let models = state.providerAccounts.first { $0.providerID == provider }?.availableModels ?? []
+            try emit("models", data: models, text: GobySessionViews(style: .plain).models(state, provider: provider, selected: sessionModel),
+                     styled: views.models(state, provider: provider, selected: sessionModel))
+            return 0
+        case "instructions":
+            let state = try await client.snapshot()
+            try emit("instructions", data: state.instructions, text: GobySessionViews(style: .plain).instructions(state), styled: views.instructions(state))
+            return 0
+        case "resources":
+            let state = try await client.snapshot()
+            try emit("resources", data: state.resources, text: GobySessionViews(style: .plain).resources(state), styled: views.resources(state))
+            return 0
+        case "groups":
+            let state = try await client.snapshot()
+            try emit("groups", data: state.projectGroups, text: GobySessionViews(style: .plain).groups(state), styled: views.groups(state))
+            return 0
+        case "handoffs":
+            let state = try await client.snapshot()
+            try emit("handoffs", data: state.handoffLinks, text: GobySessionViews(style: .plain).handoffs(state), styled: views.handoffs(state))
+            return 0
+        case "health":
+            let state = try await client.snapshot()
+            try emit("health", data: state.health, text: GobySessionViews(style: .plain).health(state), styled: views.health(state))
+            return 0
+        case "branches":
+            let state = try await client.snapshot()
+            let project: ProjectID
+            if args.count > 1 { project = try projectID(args[1], in: state) }
+            else { project = try await repository(at: directory, requiringConfirmation: false).id }
+            guard case let .projectGitBranches(snapshot) = try await local(.inspectProjectGitBranches(project)) else { throw GobySocketError.invalidResponse }
+            let name = state.projects.first { $0.id == project }?.name ?? project.rawValue
+            try emit("branches", data: snapshot, text: Self.branchesText(snapshot, name: name, style: .plain), styled: Self.branchesText(snapshot, name: name, style: io.style))
             return 0
         case "automation":
             return try await automation(args)
@@ -254,8 +329,10 @@ public actor GobyTerminalWorkflow {
         case "projects":
             let artifact = try await local(.inspectLocalCatalog)
             guard case let .localCatalog(catalog) = artifact else { throw GobySocketError.invalidResponse }
+            let projectsState = decorated ? try await client.snapshot() : nil
             try emit("projects", data: catalog.projects.map { CLIProjectOutput(id: $0.id, name: $0.name) },
-                     text: catalog.projects.map { "\($0.id.rawValue) · \($0.name)" }.joined(separator: "\n"))
+                     text: catalog.projects.map { "\($0.id.rawValue) · \($0.name)" }.joined(separator: "\n"),
+                     styled: projectsState.map { views.projects($0) })
             return 0
         case "add":
             let root = args.count > 1 ? URL(fileURLWithPath: args[1], relativeTo: directory).standardizedFileURL : directory
@@ -336,18 +413,18 @@ public actor GobyTerminalWorkflow {
                 return 0
             }
             let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            switch text.lowercased() {
-            case "": continue
-            case "/exit", "/quit", "exit", "quit":
+            if text.isEmpty { continue }
+            if ["exit", "quit", "/exit", "/quit", ":q"].contains(text.lowercased()) {
                 io.write(presenter.farewell())
                 return 0
-            case "/help", "?":
-                io.write(presenter.help)
+            }
+            if Self.isSlashCommand(text) {
+                do { try await slash(text) } catch {
+                    spinner.stop()
+                    try? emit("error", data: CLIErrorOutput(message: error.localizedDescription, exitCode: GobyCLIExitCode.forError(error)),
+                              text: error.localizedDescription, styled: presenter.error(error.localizedDescription))
+                }
                 continue
-            case "/status":
-                do { try await status() } catch { spinner.stop(); try? emit("error", data: CLIErrorOutput(message: error.localizedDescription, exitCode: 1), text: error.localizedDescription, styled: presenter.error(error.localizedDescription)) }
-                continue
-            default: break
             }
             do {
                 _ = try await request(text)
@@ -362,10 +439,142 @@ public actor GobyTerminalWorkflow {
 
     private func status() async throws {
         let state = try await client.snapshot()
-        try emit("status", data: CLIStatusOutput(plan: state.plan, runs: state.runs.map(CLIRunOutput.init), approvals: state.approvals), text: (["CLI host is available."] + state.runs.map {
+        let text = (["CLI host is available."] + state.runs.map {
             "\(WorkflowTextFormatter.status($0.status)) \($0.id.rawValue) · \($0.goal)"
         } + state.approvals.map { "! Approval needed: \($0.id) · \($0.summary)" }
-            + (state.plan.map { ["! Plan awaiting review: \($0.id.rawValue) · \($0.goal)"] } ?? [])).joined(separator: "\n"))
+            + (state.plan.map { ["! Plan awaiting review: \($0.id.rawValue) · \($0.goal)"] } ?? [])).joined(separator: "\n")
+        try emit("status", data: CLIStatusOutput(plan: state.plan, runs: state.runs.map(CLIRunOutput.init), approvals: state.approvals),
+                 text: text, styled: views.overview(state))
+    }
+
+    /// Session commands mirror the app's screens and the CLI subcommands.
+    static let sessionCommands: [(name: String, usage: String, summary: String)] = [
+        ("status", "/status", "home: providers, active work, approvals, next automation"),
+        ("map", "/map", "groups → projects → agents, with live status"),
+        ("projects", "/projects", "registered projects"),
+        ("agents", "/agents [project]", "agents, their scope, capabilities and bindings"),
+        ("runs", "/runs [project]", "conversation history"),
+        ("show", "/show [run]", "open a conversation"),
+        ("diff", "/diff [run]", "changes in a run's working tree"),
+        ("branches", "/branches [project]", "Git branches and uncommitted changes"),
+        ("automations", "/automations", "schedules and recent occurrences"),
+        ("providers", "/providers", "connections, plans and models"),
+        ("provider", "/provider <codex|claude|copilot>", "use a provider for this session"),
+        ("model", "/model [name|default]", "list models or choose one for this session"),
+        ("instructions", "/instructions", "instruction packs"),
+        ("resources", "/resources", "shared folders"),
+        ("groups", "/groups", "project groups"),
+        ("handoffs", "/handoffs", "cross-agent handoff links"),
+        ("health", "/health", "system checks"),
+        ("approve", "/approve <id>", "review and allow a pending operation once"),
+        ("deny", "/deny <id>", "decline a pending operation"),
+        ("pause", "/pause [run]", "pause a run"),
+        ("resume", "/resume [run]", "resume a run"),
+        ("cancel", "/cancel [run]", "cancel a run"),
+        ("follow-up", "/follow-up <run> <text>", "steer an active run"),
+        ("commit", "/commit <run>", "review and commit a finished run"),
+        ("push", "/push <run>", "review and push, separately"),
+        ("ask", "/ask <question>", "temporary chat, no project access"),
+        ("use", "/use <project…> | cwd", "set the default project scope"),
+        ("clear", "/clear", "clear the screen"),
+        ("help", "/help", "this list"),
+        ("exit", "/exit", "leave; the host keeps running"),
+    ]
+
+    static func isSlashCommand(_ text: String) -> Bool {
+        guard text.hasPrefix("/"), let first = text.split(separator: " ").first else { return false }
+        // "/Users/me/file" is a path in a request, not a command.
+        return !first.dropFirst().contains("/") && first.count > 1
+    }
+
+    private func slash(_ text: String) async throws {
+        let parts = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        let name = String(parts[0].dropFirst()).lowercased()
+        let rest = Array(parts.dropFirst())
+        switch name {
+        case "help", "?":
+            io.write(presenter.sessionHelp(Self.sessionCommands.map { ($0.usage, $0.summary) }))
+        case "clear":
+            io.write("\u{1B}[2J\u{1B}[H")
+        case "status", "home":
+            try await status()
+        case "provider":
+            guard let value = rest.first else {
+                _ = try await perform(["providers"])
+                return
+            }
+            let provider = try Self.provider(named: value)
+            sessionProvider = provider
+            sessionModel = nil
+            providerName = provider.displayName
+            io.write(presenter.success("Using \(provider.displayName) for this session. I'll keep watch while it digs."))
+        case "model":
+            let state = try await client.snapshot()
+            let provider = try await selectedProvider(in: state)
+            guard let value = rest.first else {
+                _ = try await perform(["models"])
+                return
+            }
+            if value.lowercased() == "default" {
+                sessionModel = nil
+                io.write(presenter.success("\(provider.displayName) will use its default model."))
+                return
+            }
+            let models = state.providerAccounts.first { $0.providerID == provider }?.availableModels ?? []
+            guard models.isEmpty || models.contains(value) else {
+                throw GobyTerminalError("\(provider.displayName) doesn't offer \(value). Type /model to see its models.")
+            }
+            sessionModel = value
+            io.write(presenter.success("New requests use \(value) on \(provider.displayName)."))
+        default:
+            guard Self.sessionCommands.contains(where: { $0.name == name }) || ["tree", "result", "log", "watch", "diagnostics", "import-agents", "run", "automation", "models"].contains(name) else {
+                throw GobyTerminalError("Unknown command /\(name). Type /help to see what I can do.")
+            }
+            _ = try await perform([name == "status" ? "home" : name] + rest)
+        }
+    }
+
+    /// Provider accounts appear after the host's first connection check.
+    private func providerSnapshot() async throws -> DashboardProjection {
+        var state = try await client.snapshot()
+        let unchecked = state.providerAccounts.isEmpty || state.providerAccounts.allSatisfy {
+            if case .notChecked = $0.connectionState { true } else { false }
+        }
+        if unchecked {
+            _ = try await send(.refreshProviders(Array(AgentProviderID.builtIn)))
+            state = try await client.snapshot()
+        }
+        return state
+    }
+
+    private func projectID(_ text: String, in state: DashboardProjection) throws -> ProjectID {
+        if let exact = state.projects.first(where: { $0.id.rawValue == text }) { return exact.id }
+        let matches = state.projects.filter { $0.name.localizedCaseInsensitiveCompare(text) == .orderedSame }
+        guard matches.count == 1, let match = matches.first else {
+            throw GobyTerminalError("No single project matches \(text). Use a name or ID from /projects.")
+        }
+        return match.id
+    }
+
+    static func provider(named text: String) throws -> AgentProviderID {
+        let provider = text.lowercased() == "copilot" ? AgentProviderID.githubCopilot : AgentProviderID(rawValue: text.lowercased())
+        guard AgentProviderID.builtIn.contains(provider) else { throw GobyTerminalError("Choose codex, claude or copilot.", code: 4) }
+        return provider
+    }
+
+    static func branchesText(_ snapshot: ProjectGitBranchSnapshot, name: String, style: GobyTerminalStyle) -> String {
+        var lines = [style.bold("Branches") + style.dim(" · " + WorkflowTextFormatter.terminalSafe(name))]
+        for branch in snapshot.localBranches {
+            let current = branch == snapshot.currentBranch
+            lines.append("  " + (current ? style.accent("● ") : style.dim("○ ")) + WorkflowTextFormatter.terminalSafe(branch) + (current ? style.dim(" · current") : ""))
+        }
+        if snapshot.hasUncommittedChanges {
+            lines.append("  " + style.warning("! ") + "Uncommitted changes" + (snapshot.changedFileCount.map { style.dim(" · \($0) file(s)") } ?? ""))
+        } else {
+            lines.append("  " + style.success("✓ ") + "Working tree clean")
+        }
+        if let remote = snapshot.pushRemote { lines.append("  " + style.dim("push remote " + WorkflowTextFormatter.terminalSafe(remote))) }
+        return lines.joined(separator: "\n")
     }
 
     private func request(_ text: String) async throws -> Int32 {
@@ -385,7 +594,7 @@ public actor GobyTerminalWorkflow {
             let provider = try await selectedProvider(in: current)
             providerName = provider.displayName
             _ = try await send(.replaceDraft(.init(expectedRevision: current.draft.revision, text: text,
-                                                   providerID: provider, projectIDs: projectIDs, agentTargets: [], groupID: nil)))
+                                                   providerID: provider, model: sessionModel, projectIDs: projectIDs, agentTargets: [], groupID: nil)))
             if decorated { spinner.start(GobyPersona.planning) }
             _ = try await send(.preparePlan)
             let state = try await client.snapshot()
@@ -465,6 +674,7 @@ public actor GobyTerminalWorkflow {
     }
     private func selectedProvider(in state: DashboardProjection) async throws -> AgentProviderID {
         if options.hasExplicitProvider { return options.providerID }
+        if let sessionProvider { return sessionProvider }
         var state = state
         if !state.providerAccounts.isEmpty, state.providerAccounts.allSatisfy({ if case .notChecked = $0.connectionState { true } else { false } }) {
             _ = try await send(.refreshProviders(state.providerAccounts.map(\.providerID)))
@@ -611,12 +821,18 @@ public actor GobyTerminalWorkflow {
     private func runID(_ text: String?) async throws -> RunID {
         let state = try await client.snapshot()
         if let text {
-            guard let found = state.runs.first(where: { $0.id.rawValue == text }) else { throw GobyTerminalError("No run matches that ID.") }
-            return found.id
+            if let exact = state.runs.first(where: { $0.id.rawValue == text }) { return exact.id }
+            // The short IDs shown in /runs work too, when they are unambiguous.
+            let matches = state.runs.filter { $0.id.rawValue.hasPrefix(text) }
+            guard text.count >= 4, matches.count == 1, let match = matches.first else {
+                throw GobyTerminalError(matches.count > 1 ? "Several runs start with \(text). Use more of the ID." : "No run matches that ID.")
+            }
+            return match.id
         }
         let active = state.runs.filter { !$0.status.isFinished }
-        guard active.count == 1, let run = active.first else { throw GobyTerminalError("Choose an exact run ID from goby status.") }
-        return run.id
+        if active.count == 1, let run = active.first { return run.id }
+        if active.isEmpty, let latest = state.runs.max(by: { $0.createdAt < $1.createdAt }) { return latest.id }
+        throw GobyTerminalError(active.isEmpty ? "No runs yet." : "Several runs are active. Choose one from goby status.")
     }
     private func findRun(_ text: String?) async throws -> GADRunProjection {
         let id = try await runID(text)
@@ -653,6 +869,17 @@ private struct CLIRunOutput: Codable, Sendable {
     let status: RunStatus
     let outcome: String?
     init(_ run: GADRunProjection) { id = run.id; goal = run.goal; status = run.status; outcome = run.outcome }
+}
+private struct CLIMapOutput: Codable, Sendable {
+    let groups: [GADProjectGroupProjection]
+    let projects: [GADProjectProjection]
+    let agents: [GADAgentProjection]
+    let bindings: [GADProviderBindingProjection]
+    let handoffLinks: [GADHandoffLinkProjection]
+    init(_ state: DashboardProjection) {
+        groups = state.projectGroups; projects = state.projects; agents = state.agents
+        bindings = state.providerBindings; handoffLinks = state.handoffLinks
+    }
 }
 private struct CLIStatusOutput: Codable, Sendable {
     let plan: GADPlanProjection?

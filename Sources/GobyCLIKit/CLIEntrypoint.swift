@@ -11,9 +11,12 @@ import GobyInfrastructure
 public enum GobyCLIEntrypoint {
     public static let help = """
     goby "<request>"              review scope → run → consolidated result
-    goby                         enter a request interactively
+    goby                         interactive session with Goby (type /help inside)
     goby run <plan> [--yes]       approve the displayed plan
-    goby status | projects | add [path]
+    goby status | home | projects | add [path]
+    goby map | agents [project] | runs [project] | show [run]
+    goby providers | models [provider] | branches [project]
+    goby instructions | resources | groups | handoffs | health
     goby watch [run] | result <run> | diff <run> | log <run>
     goby approve <id> [--yes] | deny <id>
     goby pause [run] | resume [run] | cancel [run]
