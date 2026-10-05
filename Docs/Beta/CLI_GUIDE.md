@@ -56,6 +56,27 @@ Sign-in needs an interactive terminal. `goby logout <provider>` removes only
 Goby's credential copies; it does not log out Codex, Claude Code or GitHub CLI.
 The app's store and shared Keychain group are never used by the CLI.
 
+## Talking to Goby
+
+Run `goby` with no request to open an interactive session. Goby greets you,
+shows the repository and provider, and keeps taking requests at the `›` prompt
+until you type `/exit` (or press Ctrl-D). `/status` and `/help` work inside the
+session. Leaving the session never stops the host or a running request.
+
+Goby's character is a goby fish. In nature a goby keeps watch at the burrow
+while its partner shrimp digs; here Codex, Claude or Copilot do the digging and
+Goby scouts the repository, plans the work and stops to check with you before
+anything risky. While a request runs, a status line shows what Goby is doing,
+how long it has taken, and a one-line preview of each provider message; the
+complete text appears in the final result. Plans, approvals and errors stay
+plain and exact.
+
+The colours, box and animation appear only in an interactive terminal. Set
+`NO_COLOR=1` for plain text, or `GOBY_NO_ANIMATION=1` (or turn on macOS Reduce
+Motion) for a still status line. `--json`, pipes and `TERM=dumb` always get the
+plain contract output, and provider text is cleaned of terminal control
+characters before any styling is added.
+
 ## Review and control
 
 ```sh

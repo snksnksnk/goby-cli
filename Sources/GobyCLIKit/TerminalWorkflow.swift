@@ -99,15 +99,20 @@ public struct GobyTerminalIO: Sendable {
     public let read: @Sendable (String) async -> String?
     public let readSecret: @Sendable (String) async -> String?
     public let authenticateOwner: @Sendable () async throws -> String
+    /// Goby's terminal character. Plain unless an interactive colour terminal is detected.
+    public let style: GobyTerminalStyle
     public init(interactive: Bool, write: @escaping @Sendable (String) -> Void,
                 read: @escaping @Sendable (String) async -> String?,
                 readSecret: @escaping @Sendable (String) async -> String? = { _ in nil },
-                authenticateOwner: @escaping @Sendable () async throws -> String = { throw GobyTerminalError("Device-owner authentication is required.", code: 4) }) {
+                authenticateOwner: @escaping @Sendable () async throws -> String = { throw GobyTerminalError("Device-owner authentication is required.", code: 4) },
+                style: GobyTerminalStyle = .plain) {
         self.interactive = interactive; self.write = write; self.read = read
         self.readSecret = readSecret; self.authenticateOwner = authenticateOwner
+        self.style = interactive ? style : .plain
     }
     public static func standard() -> Self {
-        .init(interactive: isatty(STDIN_FILENO) != 0 && isatty(STDOUT_FILENO) != 0,
+        let interactive = isatty(STDIN_FILENO) != 0 && isatty(STDOUT_FILENO) != 0
+        return .init(interactive: interactive,
               write: { FileHandle.standardOutput.write(Data(($0 + "\n").utf8)) },
               read: { prompt in
                   FileHandle.standardError.write(Data(prompt.utf8))
@@ -118,7 +123,8 @@ public struct GobyTerminalIO: Sendable {
                       defer { _ = memset(value, 0, strlen(value)) }
                       return String(cString: value)
                   }
-              }, authenticateOwner: { try await GobyCLIEnvironment.authenticateOwner() })
+              }, authenticateOwner: { try await GobyCLIEnvironment.authenticateOwner() },
+              style: interactive ? .detect() : .plain)
     }
 }
 
@@ -131,12 +137,19 @@ public actor GobyTerminalWorkflow {
     private let client: GADHostIPCGobyClient
     private var session: ClientSession?
     private let preferences: GobyCLIProjectPreferences?
+    private let presenter: GobyTerminalPresenter
+    private let spinner: GobySpinner
+    private var providerName = "your agent"
+    /// Goby's character appears only in an interactive, colour-capable terminal.
+    private var decorated: Bool { io.style.enabled && !options.json }
 
     public init(transport: any GADHostIPCTransporting, options: GobyCLIOptions,
                 directory: URL, io: GobyTerminalIO, preferences: GobyCLIProjectPreferences? = nil) {
         self.transport = transport; self.options = options; self.directory = directory
         self.io = io; self.preferences = preferences
         client = GADHostIPCGobyClient(transport: transport, deviceID: deviceID)
+        presenter = GobyTerminalPresenter(style: io.style)
+        spinner = GobySpinner(style: io.style)
     }
     public func execute() async -> Int32 {
         do {
@@ -145,9 +158,11 @@ public actor GobyTerminalWorkflow {
             await client.disconnect()
             return code
         } catch {
+            spinner.stop()
             await client.disconnect()
             let code = GobyCLIExitCode.forError(error)
-            try? emit("error", data: CLIErrorOutput(message: error.localizedDescription, exitCode: code), text: error.localizedDescription)
+            try? emit("error", data: CLIErrorOutput(message: error.localizedDescription, exitCode: code), text: error.localizedDescription,
+                      styled: presenter.error(error.localizedDescription))
             return code
         }
     }
@@ -234,11 +249,7 @@ public actor GobyTerminalWorkflow {
             try emit("scope", data: ids, text: "Explicit project scope saved for future requests. Use goby use cwd to return to the current repository.")
             return 0
         case "status":
-            let state = try await client.snapshot()
-            try emit("status", data: CLIStatusOutput(plan: state.plan, runs: state.runs.map(CLIRunOutput.init), approvals: state.approvals), text: (["CLI host is available."] + state.runs.map {
-                "\(WorkflowTextFormatter.status($0.status)) \($0.id.rawValue) · \($0.goal)"
-            } + state.approvals.map { "! Approval needed: \($0.id) · \($0.summary)" }
-                + (state.plan.map { ["! Plan awaiting review: \($0.id.rawValue) · \($0.goal)"] } ?? [])).joined(separator: "\n"))
+            try await status()
             return 0
         case "projects":
             let artifact = try await local(.inspectLocalCatalog)
@@ -301,11 +312,63 @@ public actor GobyTerminalWorkflow {
         default:
             var text = args.joined(separator: " ")
             if text.isEmpty {
+                if decorated { return try await session() }
                 guard io.interactive, !options.json, let entered = await io.read("Request: ") else {
                     throw GobyTerminalError("Enter a request: goby \"<request>\". Use goby help for commands.")
                 }
                 text = entered
+            } else if decorated {
+                let provider = (try? await selectedProvider(in: try await client.snapshot()))?.displayName ?? providerName
+                io.write(presenter.header(repository: directory.lastPathComponent, provider: provider))
             }
+            return try await request(text)
+        }
+    }
+
+    /// The interactive session: Goby greets once, then keeps taking requests
+    /// until /exit or end of input, like a conversation.
+    private func session() async throws -> Int32 {
+        let provider = (try? await selectedProvider(in: try await client.snapshot()))?.displayName ?? providerName
+        io.write(presenter.banner(version: GobyCLIEnvironment.version, repository: directory.lastPathComponent, provider: provider))
+        while true {
+            guard let line = await io.read("\n" + presenter.promptMarker) else {
+                io.write("\n" + presenter.farewell())
+                return 0
+            }
+            let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            switch text.lowercased() {
+            case "": continue
+            case "/exit", "/quit", "exit", "quit":
+                io.write(presenter.farewell())
+                return 0
+            case "/help", "?":
+                io.write(presenter.help)
+                continue
+            case "/status":
+                do { try await status() } catch { spinner.stop(); try? emit("error", data: CLIErrorOutput(message: error.localizedDescription, exitCode: 1), text: error.localizedDescription, styled: presenter.error(error.localizedDescription)) }
+                continue
+            default: break
+            }
+            do {
+                _ = try await request(text)
+            } catch {
+                spinner.stop()
+                let code = GobyCLIExitCode.forError(error)
+                try? emit("error", data: CLIErrorOutput(message: error.localizedDescription, exitCode: code), text: error.localizedDescription,
+                          styled: presenter.error(error.localizedDescription))
+            }
+        }
+    }
+
+    private func status() async throws {
+        let state = try await client.snapshot()
+        try emit("status", data: CLIStatusOutput(plan: state.plan, runs: state.runs.map(CLIRunOutput.init), approvals: state.approvals), text: (["CLI host is available."] + state.runs.map {
+            "\(WorkflowTextFormatter.status($0.status)) \($0.id.rawValue) · \($0.goal)"
+        } + state.approvals.map { "! Approval needed: \($0.id) · \($0.summary)" }
+            + (state.plan.map { ["! Plan awaiting review: \($0.id.rawValue) · \($0.goal)"] } ?? [])).joined(separator: "\n"))
+    }
+
+    private func request(_ text: String) async throws -> Int32 {
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw GobyTerminalError("Enter a nonempty request.") }
             let selected = await preferences?.selected ?? []
             let projectIDs: [ProjectID]
@@ -319,13 +382,16 @@ public actor GobyTerminalWorkflow {
             guard current.plan == nil, current.draft.text.isEmpty else {
                 throw GobyTerminalError("A saved draft or plan already needs review. Use goby status and goby run <plan>, or finish that request first.")
             }
+            let provider = try await selectedProvider(in: current)
+            providerName = provider.displayName
             _ = try await send(.replaceDraft(.init(expectedRevision: current.draft.revision, text: text,
-                                                   providerID: try await selectedProvider(in: current), projectIDs: projectIDs, agentTargets: [], groupID: nil)))
+                                                   providerID: provider, projectIDs: projectIDs, agentTargets: [], groupID: nil)))
+            if decorated { spinner.start(GobyPersona.planning) }
             _ = try await send(.preparePlan)
             let state = try await client.snapshot()
+            spinner.stop()
             guard let plan = state.plan else { throw GobyTerminalError("The host could not prepare a plan.", code: 1) }
             return try await start(plan, state: state)
-        }
     }
 
     private func repository(at root: URL, requiringConfirmation: Bool) async throws -> LabProject {
@@ -337,14 +403,16 @@ public actor GobyTerminalWorkflow {
             throw GobyTerminalError("Run goby from a Git repository, or use goby add <path>.", code: 4)
         }
         try emit("project-review", data: CLIProjectOutput(id: candidate.id, name: candidate.name),
-                 text: "Register \(candidate.name) as this request's repository? Existing agent definitions are preserved.")
+                 text: "Register \(candidate.name) as this request's repository? Existing agent definitions are preserved.",
+                 styled: presenter.note("First time in \(candidate.name). I'll register it so I can work here; existing agent definitions stay untouched."))
         if requiringConfirmation, !(await confirmed("Register this repository? [y/N] ")) {
             throw GobyTerminalError("Repository registration needs a decision. Review it and rerun with --yes.")
         }
         _ = try await local(.registerProjectBookmarks(bookmarks: [bookmark], selectedProjectIDs: [candidate.id]))
         guard case let .localCatalog(updated) = try await local(.inspectLocalCatalog),
               let project = updated.projects.first(where: { $0.id == candidate.id }) else { throw GobySocketError.invalidResponse }
-        try emit("project-registered", data: CLIProjectOutput(id: project.id, name: project.name), text: "Registered \(project.name).")
+        try emit("project-registered", data: CLIProjectOutput(id: project.id, name: project.name), text: "Registered \(project.name).",
+                 styled: presenter.success("Registered \(project.name)."))
         if FileManager.default.fileExists(atPath: root.appending(path: ".codex").path) {
             try emit("agent-import-available", data: "goby import-agents", text: "Native agent definitions are available. Review instruction-only copies with goby import-agents.")
             if io.interactive, !options.json, options.arguments.first != "import-agents", await confirmed("Review agent definitions now? [y/N] ", useYes: false) {
@@ -442,7 +510,8 @@ public actor GobyTerminalWorkflow {
         try emit("agent-import", data: receipt, text: "Imported the reviewed instruction copies. Native definitions remain unchanged.")
     }
     private func start(_ plan: GADPlanProjection, state: DashboardProjection) async throws -> Int32 {
-        try emit("plan", data: plan, text: WorkflowTextFormatter.plan(plan, projects: state.projects))
+        try emit("plan", data: plan, text: WorkflowTextFormatter.plan(plan, projects: state.projects),
+                 styled: presenter.plan(plan, projects: state.projects))
         guard !plan.gitOperations.contains(where: { $0.kind.alwaysRequiresSeparateApproval }) else {
             throw GobyTerminalError("This plan includes Git work requiring separate approval. Review completed-workspace delivery with goby commit or goby push; other Git mutations are unavailable here.", code: 4)
         }
@@ -460,27 +529,39 @@ public actor GobyTerminalWorkflow {
             let state = try await client.snapshot()
             guard let run = state.runs.first(where: { $0.id == id }) else { throw GobyTerminalError("This run is no longer available.") }
             if lastStatus != run.status {
-                try emit("activity", data: CLIActivityOutput(runID: id, status: run.status), text: "\(WorkflowTextFormatter.status(run.status)) \(id.rawValue)")
+                if !decorated {
+                    try emit("activity", data: CLIActivityOutput(runID: id, status: run.status), text: "\(WorkflowTextFormatter.status(run.status)) \(id.rawValue)")
+                } else if run.status == .running {
+                    try emit("activity", data: CLIActivityOutput(runID: id, status: run.status), text: "",
+                             styled: presenter.running(id, provider: providerName))
+                    spinner.start(GobyPersona.working(provider: providerName))
+                }
                 lastStatus = run.status
             }
             for step in run.activity {
                 // Status transitions update a step in place.
                 let key = "\(step.id):\(step.status)"
                 if seen.insert(key).inserted, options.verbose || step.kind == "message" {
-                    try emit("activity-step", data: step, text: "\(step.status) · \(step.title)")
+                    try emit("activity-step", data: step, text: "\(step.status) · \(step.title)", styled: presenter.step(step.title))
                 }
             }
             if run.status.isFinished {
-                try emit("result", data: CLIRunOutput(run), text: WorkflowTextFormatter.result(run))
+                let elapsed = spinner.elapsed
+                spinner.stop()
+                try emit("result", data: CLIRunOutput(run), text: WorkflowTextFormatter.result(run),
+                         styled: presenter.result(run, elapsed: elapsed))
                 return GobyCLIExitCode.forRun(run.status)
             }
             if let approval = state.approvals.first(where: { $0.runID == id }) {
+                spinner.stop()
                 if !io.interactive || options.json {
-                    try emit("approval-needed", data: approval, text: "! Approval needed. Review with goby approve \(approval.id) or goby deny \(approval.id).")
+                    try emit("approval-needed", data: approval, text: "! Approval needed. Review with goby approve \(approval.id) or goby deny \(approval.id).",
+                             styled: presenter.approvalNeeded("Approval needed. Review with goby approve \(approval.id) or goby deny \(approval.id)."))
                     return 2
                 }
                 let code = try await decide(approval, allow: true)
                 if code != 0 { return code }
+                if decorated { spinner.start(GobyPersona.working(provider: providerName)) }
             }
             try await Task.sleep(for: .milliseconds(250))
         }
@@ -489,7 +570,8 @@ public actor GobyTerminalWorkflow {
     private func decide(_ approval: GADApprovalProjection, allow: Bool) async throws -> Int32 {
         let ack = try await send(.requestApprovalDisclosure(approval.id))
         guard case let .approvalDisclosure(disclosure) = ack.artifact else { throw GobySocketError.invalidResponse }
-        try emit("approval-disclosure", data: disclosure, text: WorkflowTextFormatter.disclosure(disclosure))
+        try emit("approval-disclosure", data: disclosure, text: WorkflowTextFormatter.disclosure(disclosure),
+                 styled: presenter.approval(WorkflowTextFormatter.disclosure(disclosure)))
         if allow {
             guard disclosure.requestDigest != nil, disclosure.expiresAt > .now,
                   approval.actions.contains(.allowOnce) else { throw GobyTerminalError("This request cannot be completely reviewed or allowed.", code: 4) }
@@ -501,12 +583,14 @@ public actor GobyTerminalWorkflow {
                                            action: allow ? .allowOnce : .decline, approvalSessionID: approval.approvalSessionID,
                                            disclosureDigest: disclosure.requestDigest)
         let result = try await send(.respondToApproval(decision))
-        try emit("approval-decided", data: result, text: allow ? "Allowed once." : "Declined.")
+        try emit("approval-decided", data: result, text: allow ? "Allowed once." : "Declined.",
+                 styled: allow ? presenter.success("Allowed once. Back to it.") : presenter.note("Declined. I'll let the run know."))
         return 0
     }
     private func confirmed(_ prompt: String, useYes: Bool = true) async -> Bool {
         if useYes && options.yes { return true }
-        guard io.interactive, !options.json, let answer = await io.read(prompt) else { return false }
+        spinner.stop()
+        guard io.interactive, !options.json, let answer = await io.read(decorated ? presenter.question(prompt) : prompt) else { return false }
         return ["y", "yes"].contains(answer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
     }
     private func send(_ payload: GADCommandPayload) async throws -> GADCommandAcknowledgement {
@@ -539,12 +623,19 @@ public actor GobyTerminalWorkflow {
         guard let run = try await client.snapshot().runs.first(where: { $0.id == id }) else { throw GobySocketError.invalidResponse }
         return run
     }
-    private func emit<T: Codable & Sendable>(_ kind: String, data: T, text: String) throws {
+    /// `styled` is Goby's decorated rendering. The presenter sanitizes every
+    /// provider string before adding colour; plain and JSON output are unchanged.
+    private func emit<T: Codable & Sendable>(_ kind: String, data: T, text: String, styled: String? = nil) throws {
         if options.json {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .millisecondsSince1970
             encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
             io.write(String(decoding: try encoder.encode(GobyCLIOutput(type: kind, data: data)), as: UTF8.self))
+        } else if decorated {
+            let display = (styled ?? WorkflowTextFormatter.terminalSafe(text))
+                .replacingOccurrences(of: directory.path, with: "<repository>")
+                .replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+            spinner.interleave { io.write(display) }
         } else {
             let display = text.replacingOccurrences(of: directory.path, with: "<repository>")
                 .replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")

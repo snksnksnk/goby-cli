@@ -6,6 +6,22 @@ It does not need the Goby app, the relay, or anyone else's Mac.
 
 Requires macOS 26 or later.
 
+Run `goby` on its own for an interactive session with Goby, a small lookout
+fish that keeps watch while your provider digs:
+
+```text
+╭──────────────────────────────────────────────────────────╮
+│ ><(((º>  Goby                                     v0.2.0 │
+│                                                          │
+│ Afternoon! Good currents today.                          │
+│ I keep watch while Codex digs. I'll scout                │
+│ your repo, plan the work, and check with you             │
+│ before anything risky.                                   │
+╰──────────────────────────────────────────────────────────╯
+› fix the flaky login test
+⠹ Keeping watch while Codex digs… (12s · ctrl-c detaches)
+```
+
 ```sh
 goby doctor                         # check providers and the bundled runtime
 goby login codex                    # or: claude (API key) | copilot
