@@ -86,7 +86,8 @@ public enum GADHostComposition {
         localDefaults: UserDefaults = .standard,
         providerRuntimeRootURL: URL? = nil,
         parkedProviders: Set<AgentProviderID> = parkedProviderIDs,
-        allowsClaudeSubscriptionCredentials: Bool = true
+        allowsClaudeSubscriptionCredentials: Bool = true,
+        usesSavedClaudeCredentialsOnly: Bool = false
     ) -> AppStore {
         let providerBundle = providerRuntimeBundle()
         let codexExecutableURL = trustPolicy.codexExecutableURL()
@@ -163,7 +164,8 @@ public enum GADHostComposition {
                 credentialRepository: providerCredentials,
                 integrityBundleURL: providerRuntimeRootURL ?? providerBundle.bundleURL,
                 trustPolicy: trustPolicy,
-                allowsSubscriptionCredentials: allowsClaudeSubscriptionCredentials
+                allowsSubscriptionCredentials: allowsClaudeSubscriptionCredentials,
+                usesSavedCredentialsOnly: usesSavedClaudeCredentialsOnly
             )
             runtimes.append(adapter)
             claudeAdapter = adapter

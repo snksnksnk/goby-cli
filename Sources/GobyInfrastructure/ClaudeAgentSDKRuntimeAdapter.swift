@@ -9,6 +9,9 @@ public actor ClaudeAgentSDKRuntimeAdapter: AgentRuntimeServing {
     private let transport: JSONRPCProcessTransport
     private let credentialRepository: (any ProviderCredentialRepository)?
     private let allowsSubscriptionCredentials: Bool
+    /// The standalone CLI uses only credentials saved through goby login,
+    /// never a Claude sign-in inherited from the environment.
+    private let usesSavedCredentialsOnly: Bool
     private var savedCredentials = ClaudeSavedCredentials(subscriptionToken: nil, apiKey: nil)
     private let integrityBundleURL: URL?
     private let trustPolicy: any ProviderRuntimeTrustPolicy
@@ -28,7 +31,8 @@ public actor ClaudeAgentSDKRuntimeAdapter: AgentRuntimeServing {
         integrityBundleURL: URL? = nil,
         trustPolicy: any ProviderRuntimeTrustPolicy = AppProviderRuntimeTrustPolicy(),
         requestTimeout: TimeInterval = 30,
-        allowsSubscriptionCredentials: Bool = true
+        allowsSubscriptionCredentials: Bool = true,
+        usesSavedCredentialsOnly: Bool = false
     ) {
         transport = JSONRPCProcessTransport(
             executableURL: nodeExecutableURL,
@@ -38,6 +42,7 @@ public actor ClaudeAgentSDKRuntimeAdapter: AgentRuntimeServing {
         )
         self.credentialRepository = credentialRepository
         self.allowsSubscriptionCredentials = allowsSubscriptionCredentials
+        self.usesSavedCredentialsOnly = usesSavedCredentialsOnly
         self.integrityBundleURL = integrityBundleURL
         self.trustPolicy = trustPolicy
         self.nodeExecutableURL = nodeExecutableURL
@@ -56,6 +61,7 @@ public actor ClaudeAgentSDKRuntimeAdapter: AgentRuntimeServing {
         self.transport = transport
         self.credentialRepository = credentialRepository
         self.allowsSubscriptionCredentials = true
+        self.usesSavedCredentialsOnly = false
         self.integrityBundleURL = nil
         self.trustPolicy = AppProviderRuntimeTrustPolicy()
         self.nodeExecutableURL = nil
@@ -361,11 +367,18 @@ public actor ClaudeAgentSDKRuntimeAdapter: AgentRuntimeServing {
             subscriptionSlot: allowsSubscriptionCredentials ? try await credentialRepository?.credential(for: providerID, kind: .subscriptionToken) : nil,
             apiKeySlot: try await credentialRepository?.credential(for: providerID, kind: .apiKey)
         )
+        if usesSavedCredentialsOnly {
+            for key in ["CLAUDE_CODE_OAUTH_TOKEN", "GOBY_CLAUDE_SUBSCRIPTION_TOKEN", "ANTHROPIC_API_KEY", "GOBY_CLAUDE_API_KEY"] {
+                environment.removeValue(forKey: key)
+            }
+            guard savedCredentials.apiKey?.isEmpty == false || savedCredentials.subscriptionToken?.isEmpty == false else {
+                throw GADCommandFailure(.rejectedPolicy, "Sign in with goby login claude: paste your Claude plan token or an Anthropic API key.")
+            }
+        }
         if !allowsSubscriptionCredentials {
             guard savedCredentials.apiKey?.isEmpty == false, savedCredentials.subscriptionToken == nil else {
-                throw GADCommandFailure(.rejectedPolicy, "Goby CLI requires an Anthropic API key. Use goby login claude; subscription credentials are unavailable.")
+                throw GADCommandFailure(.rejectedPolicy, "This host requires an Anthropic API key. Use goby login claude --api-key.")
             }
-            for key in ["CLAUDE_CODE_OAUTH_TOKEN", "GOBY_CLAUDE_SUBSCRIPTION_TOKEN"] { environment.removeValue(forKey: key) }
         }
         environment.merge(savedCredentials.bridgeEnvironment) { _, saved in saved }
         try await transport.setEnvironment(environment)
@@ -515,10 +528,9 @@ public actor ClaudeAgentSDKRuntimeAdapter: AgentRuntimeServing {
                 eventContinuation.yield(.assignmentFailed(
                     providerID,
                     .init(rawValue: payload.assignmentId),
-                    message: allowsSubscriptionCredentials ? Self.actionableFailureMessage(
-                        payload.message,
-                        savedCredentials: savedCredentials
-                    ) : payload.message + " CLI authentication uses an Anthropic API key; review API credits or rerun goby login claude."
+                    message: usesSavedCredentialsOnly
+                        ? payload.message + " Check your Claude plan limits or API credits, or rerun goby login claude."
+                        : Self.actionableFailureMessage(payload.message, savedCredentials: savedCredentials)
                 ))
             case "goby/connectionClosed":
                 state = .failed(message: "Claude Agent SDK bridge closed unexpectedly.")

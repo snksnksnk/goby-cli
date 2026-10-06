@@ -22,7 +22,10 @@ public enum GobyCLIEntrypoint {
     goby pause [run] | resume [run] | cancel [run]
     goby follow-up <run> "<text>"
     goby host run [--stay-alive] | host status | host stop
-    goby doctor | login <provider> | logout <provider>
+    goby doctor | logout <provider>
+    goby login claude [--plan|--api-key]    paste a Claude plan token or API key
+    goby login codex [--device|--api-key]   reuses an existing Codex login
+    goby login copilot [--token]            reuses an existing gh login
     goby diagnostics | ask "<question>" | ask end
     goby commit <run> | push <run> [--yes]
     goby import-agents | use <project-id>... | use cwd

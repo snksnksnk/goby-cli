@@ -43,6 +43,8 @@ public struct GobyCLIOptions: Sendable {
     public let providerID: AgentProviderID
     public let hasExplicitProvider: Bool
     public let stayAlive: Bool
+    /// goby login: --plan, --api-key, --token or --device.
+    public let loginMethod: String?
     public init(_ input: [String]) throws {
         var args: [String] = []
         var json = false, verbose = false, yes = false
@@ -50,6 +52,7 @@ public struct GobyCLIOptions: Sendable {
         var provider = AgentProviderID.codex
         var explicitProvider = false
         var stayAlive = false
+        var loginMethod: String?
         var index = 0
         while index < input.count {
             let value = input[index]
@@ -59,6 +62,9 @@ public struct GobyCLIOptions: Sendable {
             case "--verbose": verbose = true
             case "--yes": yes = true
             case "--stay-alive": stayAlive = true
+            case "--plan", "--api-key", "--token", "--device":
+                guard loginMethod == nil else { throw GobyTerminalError("Choose one sign-in option.") }
+                loginMethod = String(value.dropFirst(2))
             case "--version": args = ["version"]
             case "--store", "--provider":
                 index += 1
@@ -80,6 +86,8 @@ public struct GobyCLIOptions: Sendable {
         }
         arguments = args; self.json = json; self.verbose = verbose; self.yes = yes
         storePath = store; providerID = provider; hasExplicitProvider = explicitProvider; self.stayAlive = stayAlive
+        self.loginMethod = loginMethod
+        guard loginMethod == nil || args.first == "login" else { throw GobyTerminalError("--\(loginMethod ?? "") is only valid with goby login.", code: 4) }
         guard !stayAlive || args == ["host", "run"] else { throw GobyTerminalError("--stay-alive is only valid with goby host run.", code: 4) }
     }
 }

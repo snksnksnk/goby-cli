@@ -41,16 +41,29 @@ Source definitions and their tool configuration are never overwritten.
 
 ### Provider sign-in
 
-- **Codex:** install the provider's signed executable (`brew install --cask codex`),
-  then `goby login codex`. Goby hands off to `codex login`, validates the executable
-  before launch and checks the running process. Unsigned distributions are refused.
-- **Claude:** `goby login claude` reads an API key with echo disabled and saves it
-  only in the login Keychain. No key argument or environment dump is accepted.
-  Existing Claude.ai or Claude Code sign-in cannot substitute for an API key.
-- **Copilot:** install GitHub CLI (`brew install gh`), then `goby login copilot`.
-  The supported SDK authentication uses GitHub CLI's OAuth browser/device flow;
-  Goby saves its own token copy in CLI Keychain. This uses the SDK's documented
-  GitHub CLI credential source instead of inventing an OAuth client registration.
+Each provider can use a login or plan you already have:
+
+- **Codex:** install the provider's signed executable (`brew install --cask codex`).
+  If Codex is already signed in with your ChatGPT plan or an API key, Goby uses
+  that login and `goby login codex` just confirms it. Otherwise it hands off to
+  `codex login`. `--device` signs in with a code, for a remote or headless Mac;
+  `--api-key` pastes an OpenAI API key into Codex's own login through stdin.
+  Goby validates the executable before launch and checks the running process.
+- **Claude:** run `claude setup-token` to get a token for your Claude plan, then
+  `goby login claude` and paste it. An Anthropic API key pasted at the same
+  prompt works too; the prefix (`sk-ant-oat…` or `sk-ant-api…`) decides which.
+  `--plan` and `--api-key` insist on one. Input is hidden, saved only in Goby's
+  login-Keychain item, and replaces the other kind, so one Claude credential is
+  active at a time. Sign-ins inherited from your shell or Claude Code are never
+  used; only what you saved with `goby login` is.
+- **Copilot:** `goby login copilot` reuses an existing GitHub CLI login if there
+  is one, and otherwise runs GitHub CLI's browser sign-in. `--token` pastes a
+  GitHub token with Copilot access instead. Goby saves its own token copy in the
+  CLI Keychain.
+
+Plan sign-in is meant for your own Mac. Each provider's terms govern using a
+personal plan through third-party software; check them before sharing a build
+with others, and prefer API keys for anything shared (ADR-024 question 1).
 
 Sign-in needs an interactive terminal. `goby logout <provider>` removes only
 Goby's credential copies; it does not log out Codex, Claude Code or GitHub CLI.

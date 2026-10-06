@@ -25,7 +25,47 @@ struct CLIBetaTests {
         #expect(!output.lines.contains { $0.contains("fixture-secret") })
         #expect(try await GobyCLISetupCommands(configuration: config, options: GobyCLIOptions(["logout", "claude", "--json"]), io: output.io, credentials: repository).execute() == 0)
         #expect(await repository.values.isEmpty)
-        #expect(await repository.removals == [.apiKey, .subscriptionToken])
+        #expect(await repository.removals.suffix(2) == [.apiKey, .subscriptionToken])
+    }
+    @Test("One Claude paste accepts a plan token or an API key, and flags pin the type")
+    func claudeCredentialKinds() throws {
+        #expect(try GobyCLIEnvironment.validateClaudeCredential("sk-ant-oat01-plan", method: nil) == (.subscriptionToken, "sk-ant-oat01-plan"))
+        #expect(try GobyCLIEnvironment.validateClaudeCredential(" sk-ant-api03-key\n", method: nil) == (.apiKey, "sk-ant-api03-key"))
+        #expect(try GobyCLIEnvironment.validateClaudeCredential("sk-ant-oat01-plan", method: "plan").0 == .subscriptionToken)
+        #expect(throws: GobyTerminalError.self) { try GobyCLIEnvironment.validateClaudeCredential("sk-ant-api03-key", method: "plan") }
+        #expect(throws: GobyTerminalError.self) { try GobyCLIEnvironment.validateClaudeCredential("sk-ant-oat01-plan", method: "api-key") }
+        #expect(throws: GobyTerminalError.self) { try GobyCLIEnvironment.validateClaudeCredential("two words", method: nil) }
+        #expect(throws: GobyTerminalError.self) { try GobyCLIOptions(["status", "--plan"]) }
+        #expect(try GobyCLIOptions(["login", "claude", "--plan"]).loginMethod == "plan")
+    }
+    @Test("Pasting a Claude plan token saves only that credential and never echoes it")
+    func claudePlanLogin() async throws {
+        let root = try socketRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let repository = BetaCredentials()
+        await repository.saveCredential("sk-ant-api-old-key", for: .claude, kind: .apiKey)
+        let output = OutputRecorder()
+        let config = GobyCLIConfiguration(storeDirectory: root, executableURL: root.appending(path: "goby"), hostVersion: "fixture")
+        let io = GobyTerminalIO(interactive: true, write: { line in output.io.write(line) }, read: { _ in nil }, readSecret: { _ in "sk-ant-oat01-plan-fixture" })
+        #expect(try await GobyCLISetupCommands(configuration: config, options: GobyCLIOptions(["login", "claude"]), io: io, credentials: repository).execute() == 0)
+        #expect(await repository.values[.subscriptionToken] == "sk-ant-oat01-plan-fixture")
+        #expect(await repository.values[.apiKey] == nil)
+        #expect(!output.lines.contains { $0.contains("plan-fixture") })
+        #expect(output.lines.contains { $0.contains("Claude plan token") })
+    }
+    @Test("The standalone host ignores inherited Claude sign-ins and asks for goby login")
+    func claudeSavedCredentialsOnly() async throws {
+        let root = try socketRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let node = root.appending(path: "node"), bridge = root.appending(path: "entry.js")
+        let bytes = Data("not an executable".utf8)
+        try bytes.write(to: node); try bytes.write(to: bridge)
+        let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        let adapter = ClaudeAgentSDKRuntimeAdapter(nodeExecutableURL: node, bridgeEntryURL: bridge,
+            environment: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-ambient"],
+            credentialRepository: BetaCredentials(), integrityBundleURL: root,
+            trustPolicy: StandaloneProviderRuntimeTrustPolicy(manifest: ["node": digest, "entry.js": digest]),
+            usesSavedCredentialsOnly: true)
+        do { _ = try await adapter.connect(); Issue.record("An inherited Claude sign-in was used") }
+        catch let failure as GADCommandFailure { #expect(failure.message.contains("goby login claude")) }
     }
     @Test("Login from a pipe needs a decision before reading secrets")
     func pipedLogin() async throws {

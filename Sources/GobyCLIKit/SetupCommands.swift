@@ -47,6 +47,33 @@ public enum GobyCLIEnvironment {
         }
         return key
     }
+
+    /// One paste accepts either Claude credential: a plan token from
+    /// `claude setup-token` (sk-ant-oat…) or an Anthropic API key.
+    public static func validateClaudeCredential(_ value: String, method: String?) throws -> (ProviderCredentialKind, String) {
+        let credential = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !credential.isEmpty, credential.utf8.count <= 8_192, !credential.contains(where: { $0.isWhitespace }) else {
+            throw GobyTerminalError("Paste a Claude plan token or an Anthropic API key, without spaces.", code: 4)
+        }
+        let isPlan = ProviderCredentialKind.isClaudeSubscriptionToken(credential)
+        switch method {
+        case "plan" where !isPlan:
+            throw GobyTerminalError("That isn't a Claude plan token. Run claude setup-token and paste the token that starts with sk-ant-oat.", code: 4)
+        case "api-key" where isPlan:
+            throw GobyTerminalError("That's a Claude plan token. Use goby login claude --plan, or paste an API key.", code: 4)
+        default:
+            return (isPlan ? .subscriptionToken : .apiKey, credential)
+        }
+    }
+
+    /// A pasted GitHub token or OpenAI API key.
+    public static func validatePastedToken(_ value: String) throws -> String {
+        let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty, token.utf8.count <= 8_192, !token.contains(where: { $0.isWhitespace }) else {
+            throw GobyTerminalError("Paste the whole token, without spaces.", code: 4)
+        }
+        return token
+    }
 }
 
 public struct GobyDoctorCheck: Codable, Sendable {
@@ -102,7 +129,7 @@ public actor GobyCLISetupCommands {
                 .init(name: "Signed Codex", passed: signed, action: "Install Codex: brew install --cask codex; then codex login. The installed executable must pass the OpenAI signature check."),
                 .init(name: "Pinned provider runtime", passed: runtime, action: "Install the signed Goby CLI release to enable Claude and Copilot."),
                 .init(name: "CLI namespace", passed: true, action: "The CLI has separate storage and login-Keychain items."),
-                .init(name: "Provider terms", passed: false, action: "Claude uses API keys only. ADR-024 question 1 remains a friends-beta release gate.")]
+                .init(name: "Provider terms", passed: false, action: "Claude accepts your plan token or an API key. Check each provider's terms before sharing builds that sign in with a plan (ADR-024 question 1).")]
             try emit("doctor", check, check.map { "\($0.passed ? "✓" : "!") \($0.name) · \($0.action)" }.joined(separator: "\n"))
             return runtime ? 0 : 4
         case "logout":
@@ -114,38 +141,85 @@ public actor GobyCLISetupCommands {
         case "login":
             let provider = try providerArgument()
             guard io.interactive, !options.json else { throw GobyTerminalError("Provider sign-in needs an interactive terminal. Credentials are never accepted in command arguments.") }
+            let method = options.loginMethod
+            let message: String
             switch provider {
             case .claude:
-                guard let value = await io.readSecret("Anthropic API key (hidden): ") else { throw GobyTerminalError("Sign-in cancelled.") }
-                try await credentials.saveCredential(GobyCLIEnvironment.validateAPIKey(value), for: .claude, kind: .apiKey)
+                guard method == nil || method == "plan" || method == "api-key" else {
+                    throw GobyTerminalError("Claude takes --plan or --api-key.", code: 4)
+                }
+                let prompt = switch method {
+                case "plan": "Claude plan token from `claude setup-token` (hidden): "
+                case "api-key": "Anthropic API key (hidden): "
+                default: "Paste your Claude plan token (from `claude setup-token`) or an Anthropic API key (hidden): "
+                }
+                guard let value = await io.readSecret(prompt) else { throw GobyTerminalError("Sign-in cancelled.") }
+                let (kind, credential) = try GobyCLIEnvironment.validateClaudeCredential(value, method: method)
+                // One active Claude credential at a time, so it is clear which one runs.
+                for other in ProviderCredentialKind.allCases where other != kind {
+                    try await credentials.removeCredential(for: .claude, kind: other)
+                }
+                try await credentials.saveCredential(credential, for: .claude, kind: kind)
+                message = kind == .subscriptionToken
+                    ? "Saved your Claude plan token in Goby's Keychain item. Claude runs now use your plan's limits."
+                    : "Saved your Anthropic API key in Goby's Keychain item. Claude runs are billed to that key."
             case .codex:
+                guard method == nil || method == "device" || method == "api-key" else {
+                    throw GobyTerminalError("Codex takes --device or --api-key.", code: 4)
+                }
                 let policy = StandaloneProviderRuntimeTrustPolicy()
                 let executable = policy.codexExecutableURL()
                 let validator = policy.codexValidator()
                 try validator.validate(executableURL: executable)
-                let status = try await GobySocketIO.offload { try Self.run(executable, arguments: ["login"], validator: validator) }
-                guard status == 0 else { throw GobyTerminalError("Codex sign-in did not finish.", code: 1) }
-            case .githubCopilot:
-                // The SDK supports gh's OAuth device credentials. Do not
-                // invent a third-party OAuth client registration or dump tokens.
-                let candidates = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"].map { URL(fileURLWithPath: $0).resolvingSymlinksInPath() }
-                guard let gh = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
-                    throw GobyTerminalError("Install GitHub CLI: brew install gh. Then rerun goby login copilot.", code: 4)
+                if method == nil, try await GobySocketIO.offload({ try Self.run(executable, arguments: ["login", "status"], validator: validator, quiet: true) }) == 0 {
+                    message = "Codex is already signed in (your ChatGPT plan or key). Goby uses that login; nothing to change."
+                } else if method == "api-key" {
+                    guard let value = await io.readSecret("OpenAI API key (hidden): ") else { throw GobyTerminalError("Sign-in cancelled.") }
+                    let key = try GobyCLIEnvironment.validatePastedToken(value)
+                    let status = try await GobySocketIO.offload { try Self.run(executable, arguments: ["login", "--with-api-key"], validator: validator, input: Data(key.utf8)) }
+                    guard status == 0 else { throw GobyTerminalError("Codex didn't accept that API key.", code: 1) }
+                    message = "Codex now signs in with your API key. The key stays in Codex's own login, not in Goby."
+                } else {
+                    let arguments = method == "device" ? ["login", "--device-auth"] : ["login"]
+                    let status = try await GobySocketIO.offload { try Self.run(executable, arguments: arguments, validator: validator) }
+                    guard status == 0 else { throw GobyTerminalError("Codex sign-in did not finish.", code: 1) }
+                    message = "Codex sign-in completed."
                 }
-                let status = try await GobySocketIO.offload { try Self.run(gh, arguments: ["auth", "login", "--hostname", "github.com", "--web", "--git-protocol", "https"]) }
-                guard status == 0 else { throw GobyTerminalError("GitHub device sign-in did not finish.", code: 1) }
-                let token = try await GobySocketIO.offload { try Self.captureToken(gh) }
-                try await credentials.saveCredential(token, for: .githubCopilot, kind: .apiKey)
+            case .githubCopilot:
+                guard method == nil || method == "token" else { throw GobyTerminalError("Copilot takes --token.", code: 4) }
+                if method == "token" {
+                    guard let value = await io.readSecret("GitHub token with Copilot access (hidden): ") else { throw GobyTerminalError("Sign-in cancelled.") }
+                    try await credentials.saveCredential(GobyCLIEnvironment.validatePastedToken(value), for: .githubCopilot, kind: .apiKey)
+                    message = "Saved your GitHub token in Goby's Keychain item."
+                } else {
+                    // The SDK supports gh's OAuth device credentials. Do not
+                    // invent a third-party OAuth client registration or dump tokens.
+                    let candidates = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"].map { URL(fileURLWithPath: $0).resolvingSymlinksInPath() }
+                    guard let gh = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
+                        throw GobyTerminalError("Install GitHub CLI (brew install gh), or paste a token with goby login copilot --token.", code: 4)
+                    }
+                    // Reuse an existing gh login before asking for a new one.
+                    if let existing = try? await GobySocketIO.offload({ try Self.captureToken(gh) }) {
+                        try await credentials.saveCredential(existing, for: .githubCopilot, kind: .apiKey)
+                        message = "Reused your existing GitHub CLI login for Copilot."
+                    } else {
+                        let status = try await GobySocketIO.offload { try Self.run(gh, arguments: ["auth", "login", "--hostname", "github.com", "--web", "--git-protocol", "https"]) }
+                        guard status == 0 else { throw GobyTerminalError("GitHub device sign-in did not finish.", code: 1) }
+                        let token = try await GobySocketIO.offload { try Self.captureToken(gh) }
+                        try await credentials.saveCredential(token, for: .githubCopilot, kind: .apiKey)
+                        message = "GitHub sign-in completed for Copilot."
+                    }
+                }
             default: throw GobyTerminalError("Choose codex, claude or copilot.", code: 4)
             }
             await notify(provider)
-            try emit("login", provider.rawValue, "Provider sign-in completed.")
+            try emit("login", provider.rawValue, message)
             return 0
         default: throw GobyTerminalError("Unknown setup command.")
         }
     }
     private func providerArgument() throws -> AgentProviderID {
-        guard options.arguments.count == 2 else { throw GobyTerminalError("Usage: goby login|logout codex|claude|copilot") }
+        guard options.arguments.count == 2 else { throw GobyTerminalError("Usage: goby login codex [--device|--api-key] | claude [--plan|--api-key] | copilot [--token]; goby logout <provider>") }
         let provider = options.arguments[1] == "copilot" ? AgentProviderID.githubCopilot : AgentProviderID(rawValue: options.arguments[1])
         guard AgentProviderID.builtIn.contains(provider) else { throw GobyTerminalError("Choose codex, claude or copilot.", code: 4) }
         return provider
@@ -157,16 +231,24 @@ public actor GobyCLISetupCommands {
         if options.json { io.write(String(decoding: try JSONEncoder().encode(GobyCLIOutput(type: kind, data: value)), as: UTF8.self)) }
         else { io.write(text) }
     }
-    private static func run(_ executable: URL, arguments: [String], validator: (any CodexRuntimeValidating)? = nil) throws -> Int32 {
+    /// `input` is written to the child's stdin (never its arguments), so a
+    /// pasted key never appears in the process list.
+    private static func run(_ executable: URL, arguments: [String], validator: (any CodexRuntimeValidating)? = nil,
+                            input: Data? = nil, quiet: Bool = false) throws -> Int32 {
         try validator?.validate(executableURL: executable)
         let process = Process()
         process.executableURL = executable; process.arguments = arguments
-        process.standardInput = FileHandle.standardInput
-        process.standardOutput = FileHandle.standardError
-        process.standardError = FileHandle.standardError
+        let pipe = input.map { _ in Pipe() }
+        process.standardInput = pipe ?? FileHandle.standardInput
+        process.standardOutput = quiet ? FileHandle.nullDevice : FileHandle.standardError
+        process.standardError = quiet ? FileHandle.nullDevice : FileHandle.standardError
         try process.run()
         do { try validator?.validateRunningProcess(processIdentifier: process.processIdentifier, executableURL: executable) }
         catch { process.terminate(); process.waitUntilExit(); throw error }
+        if let pipe, let input {
+            try pipe.fileHandleForWriting.write(contentsOf: input + Data([10]))
+            try pipe.fileHandleForWriting.close()
+        }
         process.waitUntilExit()
         return process.terminationStatus
     }

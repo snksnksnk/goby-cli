@@ -70,7 +70,10 @@ public final class GADFreshStandaloneRuntime {
                 localDefaults: localDefaults,
                 providerRuntimeRootURL: providerRuntimeRootURL,
                 parkedProviders: [],
-                allowsClaudeSubscriptionCredentials: false
+                // A Claude plan token or API key saved with goby login; never
+                // a sign-in inherited from the shell or Claude Code.
+                allowsClaudeSubscriptionCredentials: true,
+                usesSavedClaudeCredentialsOnly: true
             )
             self.store = store
             await store.load(includingLiveProviderChecks: false)

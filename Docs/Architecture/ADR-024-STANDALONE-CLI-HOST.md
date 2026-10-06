@@ -565,3 +565,15 @@ run. Separate hosts still exclude each other. Previously each run opened its
 own lock, so parallel requests in the same repository (ADR-020) waited 60
 seconds and then failed, in both the CLI and the app. The app repository needs
 the same fix before `feature/cli-host` is merged there.
+
+### Plan sign-in (6 October 2026)
+
+At the maintainer's request, `goby login claude` now also accepts a Claude plan
+token from `claude setup-token`, alongside an API key, and saves whichever was
+pasted in the CLI Keychain. The CLI host uses only credentials saved through
+`goby login`; sign-ins inherited from the environment or Claude Code are
+removed before the bridge starts. `goby login codex` reuses an existing Codex
+login, and `goby login copilot` reuses an existing GitHub CLI login, with
+`--device`, `--api-key` and `--token` alternatives. The app's behavior is
+unchanged. Question 1 stays open for distribution: plan sign-in is documented as
+intended for the user's own Mac, and shared builds should prefer API keys.
