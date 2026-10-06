@@ -5,7 +5,6 @@ class Goby < Formula
   version "@VERSION@"
   sha256 "@SHA256@"
   license "MIT"
-  depends_on :macos
   depends_on macos: :tahoe
 
   def install
