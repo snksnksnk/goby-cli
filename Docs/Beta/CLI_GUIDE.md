@@ -22,6 +22,12 @@ cd /path/to/your/repository
 goby "Summarize the README without changing any files."
 ```
 
+Without Homebrew, download `goby-<version>.pkg` from the release page and
+double-click it. The signed, notarized installer puts goby in `/usr/local/goby`
+and links `/usr/local/bin/goby`. Update by installing a newer package; remove it
+with `/usr/local/goby/uninstall-goby.sh`, which keeps your data and sign-ins.
+The installer refuses to replace a Homebrew-managed goby.
+
 Adding the tap is a one-time step; after it, `brew install goby`,
 `brew upgrade goby` and `brew uninstall goby` work by name. `brew install
 snksnksnk/goby/goby` does both steps in one command.

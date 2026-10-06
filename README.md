@@ -17,6 +17,11 @@ Then `goby doctor` and `goby login codex` (or `claude` / `copilot`). Update with
 `brew upgrade goby`. The one-line form `brew install snksnksnk/goby/goby` does
 both steps at once.
 
+Without Homebrew: download `goby-<version>.pkg` from the
+[latest release](https://github.com/snksnksnk/goby-cli/releases/latest) and
+double-click it. It installs to `/usr/local/goby` and links `/usr/local/bin/goby`;
+remove it later with `/usr/local/goby/uninstall-goby.sh`.
+
 Run `goby` on its own for an interactive session with Goby, a small lookout
 fish that keeps watch while your provider digs:
 
