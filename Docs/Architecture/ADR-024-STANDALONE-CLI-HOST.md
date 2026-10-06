@@ -577,3 +577,21 @@ login, and `goby login copilot` reuses an existing GitHub CLI login, with
 `--device`, `--api-key` and `--token` alternatives. The app's behavior is
 unchanged. Question 1 stays open for distribution: plan sign-in is documented as
 intended for the user's own Mac, and shared builds should prefer API keys.
+
+### On-demand runtimes (6 October 2026)
+
+The bundled release was 705 MB, almost all of it Claude and Copilot runtimes
+shipped for both architectures plus two Node copies. The Homebrew package now
+holds only goby (about 14 MB). Each provider runtime is a separate release
+package per architecture (Claude about 126-132 MB, Copilot about 82-89 MB),
+downloaded on first use into `~/Library/Application Support/Goby CLI
+Runtime/<version>/`.
+
+Trust is unchanged in kind: the signed goby compiles the SHA-256 of every
+runtime package and of every file in each per-architecture runtime. A download
+must match its package hash, is extracted into staging, validated against the
+manifest, and moved into place atomically. At launch the host validates only
+the runtime components present, against every manifest entry for those
+components, and rejects anything else at the runtime root. Release builds
+notarize goby and all runtime binaries together; the release check installs a
+runtime from the built packages end to end.

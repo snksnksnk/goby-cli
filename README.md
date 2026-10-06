@@ -43,9 +43,12 @@ swift build -c release --product goby
 Scripts/test-swift-package.sh
 ```
 
-A source build runs with Codex. Claude and Copilot need the bundled, pinned
-provider runtime, which only the release build produces; source builds refuse
-them on purpose.
+A source build runs with Codex. Claude and Copilot runtimes are separate,
+signed release packages that goby downloads on demand and verifies against
+hashes compiled into release builds, so source builds can't install them.
+
+The Homebrew package is about 14 MB. Claude (about 130 MB) and Copilot (about
+85 MB) runtimes download once, for your Mac's architecture, when you sign in.
 
 ## Release
 

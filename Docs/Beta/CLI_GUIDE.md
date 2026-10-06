@@ -61,6 +61,16 @@ Each provider can use a login or plan you already have:
   GitHub token with Copilot access instead. Goby saves its own token copy in the
   CLI Keychain.
 
+Claude and Copilot each need a runtime that is downloaded once, on demand:
+`goby login claude` or `goby login copilot` offers it (about 130 MB for Claude
+and 85 MB for Copilot, for your Mac's architecture only), or run
+`goby runtime install claude|copilot`. `goby runtime status` shows what is
+installed and `goby runtime remove …` deletes it. Codex needs no runtime. Each
+download must match a hash built into the signed goby, and every file is
+checked again before it runs. Runtimes live in
+`~/Library/Application Support/Goby CLI Runtime/<version>/`, and older
+versions are removed after an upgrade.
+
 Plan sign-in is meant for your own Mac. Each provider's terms govern using a
 personal plan through third-party software; check them before sharing a build
 with others, and prefer API keys for anything shared (ADR-024 question 1).
