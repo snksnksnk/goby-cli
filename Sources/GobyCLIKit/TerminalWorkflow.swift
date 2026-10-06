@@ -128,6 +128,16 @@ public struct GobyTerminalIO: Sendable {
     }
 }
 
+/// What Ctrl-C should do, decided by the workflow's current state.
+public enum GobyInterruptOutcome: Equatable, Sendable {
+    /// A session request returns to the prompt; the host keeps the work.
+    case handled
+    /// An idle session ends with Goby's goodbye.
+    case leave(String)
+    /// A single command detaches, as before.
+    case detach
+}
+
 public actor GobyTerminalWorkflow {
     private let transport: any GADHostIPCTransporting
     private let options: GobyCLIOptions
@@ -144,6 +154,20 @@ public actor GobyTerminalWorkflow {
     private var sessionProvider: AgentProviderID?
     private var sessionModel: String?
     private var views: GobySessionViews { GobySessionViews(style: io.style) }
+    private var inSession = false
+    private var requestInFlight = false
+    private var detachRequested = false
+
+    /// Ctrl-C. Inside a session, an in-flight request detaches back to the
+    /// prompt and an idle prompt says goodbye. Host work is never cancelled.
+    public func interrupt() -> GobyInterruptOutcome {
+        guard inSession else { return .detach }
+        if requestInFlight {
+            detachRequested = true
+            return .handled
+        }
+        return .leave(presenter.farewell())
+    }
     /// Goby's character appears only in an interactive, colour-capable terminal.
     private var decorated: Bool { io.style.enabled && !options.json }
 
@@ -408,6 +432,8 @@ public actor GobyTerminalWorkflow {
     /// The interactive session: Goby greets once, then keeps taking requests
     /// until /exit or end of input, like a conversation.
     private func session() async throws -> Int32 {
+        inSession = true
+        defer { inSession = false }
         let provider = (try? await selectedProvider(in: try await client.snapshot()))?.displayName ?? providerName
         io.write(presenter.banner(version: GobyCLIEnvironment.version, repository: directory.lastPathComponent, provider: provider))
         while true {
@@ -429,6 +455,9 @@ public actor GobyTerminalWorkflow {
                 }
                 continue
             }
+            requestInFlight = true
+            detachRequested = false
+            defer { requestInFlight = false }
             do {
                 _ = try await request(text)
             } catch {
@@ -537,6 +566,16 @@ public actor GobyTerminalWorkflow {
         }
     }
 
+    /// Cancels a declined plan and clears the request it was drafted from, so
+    /// the next terminal request is not blocked by this one.
+    private func dropPlan(_ plan: GADPlanProjection) async throws {
+        _ = try await send(.cancelPlan(plan.id))
+        let state = try await client.snapshot()
+        guard state.plan == nil, !state.draft.text.isEmpty else { return }
+        _ = try await send(.replaceDraft(.init(expectedRevision: state.draft.revision, text: "",
+                                               providerID: state.draft.providerID, projectIDs: [], agentTargets: [], groupID: nil)))
+    }
+
     /// Provider accounts appear after the host's first connection check.
     private func providerSnapshot() async throws -> DashboardProjection {
         var state = try await client.snapshot()
@@ -603,6 +642,12 @@ public actor GobyTerminalWorkflow {
             let state = try await client.snapshot()
             spinner.stop()
             guard let plan = state.plan else { throw GobyTerminalError("The host could not prepare a plan.", code: 1) }
+            if detachRequested {
+                detachRequested = false
+                try? await dropPlan(plan)
+                try emit("plan-cancelled", data: plan.id, text: "Plan cancelled. Nothing ran.", styled: presenter.note("Stopped before running. I dropped that plan; nothing ran."))
+                return 2
+            }
             return try await start(plan, state: state)
     }
 
@@ -730,7 +775,15 @@ public actor GobyTerminalWorkflow {
         }
         if plan.startsWithoutReview != true && !plan.canStartAutomatically,
            !(await confirmed("Approve this exact plan and run? [y/N] ")) {
-            throw GobyTerminalError("Plan needs a decision. Review it and use goby run \(plan.id.rawValue) --yes.")
+            // A person said no: drop the plan so it doesn't block the next
+            // request. Without a terminal, keep it for goby run <plan> --yes.
+            guard io.interactive, !options.json, !options.yes else {
+                throw GobyTerminalError("Plan needs a decision. Review it and use goby run \(plan.id.rawValue) --yes.")
+            }
+            try await dropPlan(plan)
+            try emit("plan-cancelled", data: plan.id, text: "Plan cancelled. Nothing ran.",
+                     styled: presenter.note("No problem, I dropped that plan. Nothing ran."))
+            return 2
         }
         _ = try await send(.startRun(.init(planID: plan.id)))
         return try await watch(plan.id)
@@ -739,6 +792,14 @@ public actor GobyTerminalWorkflow {
         var lastStatus: RunStatus?
         var seen = Set<String>()
         while !Task.isCancelled {
+            if detachRequested {
+                detachRequested = false
+                spinner.stop()
+                let short = String(id.rawValue.prefix(8))
+                try emit("detached", data: id, text: "Detached; the run continues. Use goby watch \(id.rawValue) or goby cancel \(id.rawValue).",
+                         styled: presenter.note("Detached. \(providerName) keeps digging; /show \(short) checks in, /cancel \(short) stops it."))
+                return 0
+            }
             let state = try await client.snapshot()
             guard let run = state.runs.first(where: { $0.id == id }) else { throw GobyTerminalError("This run is no longer available.") }
             if lastStatus != run.status {

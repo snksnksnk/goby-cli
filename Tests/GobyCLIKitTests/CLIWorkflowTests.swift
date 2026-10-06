@@ -113,6 +113,64 @@ struct CLIWorkflowTests {
         #expect(runtime.store?.lab.projects.isEmpty == true)
         try await runtime.stop()
     }
+
+    @Test("Declining a plan at the prompt drops it, so the next request is not blocked")
+    @MainActor
+    func declinedPlanDoesNotBlock() async throws {
+        let root = try socketRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("# Test repository\n".utf8).write(to: root.appending(path: "README.md"))
+        try await GobySocketIO.offload {
+            try git(["init", "-q"], root: root)
+            try git(["add", "README.md"], root: root)
+            try git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgSign=false", "commit", "-qm", "Fixture"], root: root)
+        }
+        let bridge = root.appending(path: "fake-codex")
+        try Data(fakeBridge.utf8).write(to: bridge)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: bridge.path)
+        let defaultsName = "com.goby.cli.spike.decline.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let runtime = try GADFreshStandaloneRuntime(storeDirectory: root.appending(path: "store"),
+            notifier: FixtureNotifier(), trustPolicy: FixtureTrust(executable: bridge), keychainNamespace: .spike,
+            localDefaults: defaults, identifierAliasCodec: RemoteIdentifierAliasCodec(keyData: Data(repeating: 7, count: 32)),
+            automationAuthenticator: UITestFileAutomationDocumentAuthenticator(directoryURL: root.appending(path: "store")),
+            temporaryChatSupportDirectoryURL: root.appending(path: "chat-cache"))
+        let handler = try await runtime.start(hostVersion: "fixture")
+        let lines = Mutex<[String]>([])
+        let prompts = Mutex<[String]>([])
+        // A person at the terminal: yes to registering, no to the plan.
+        let io = GobyTerminalIO(interactive: true, write: { line in lines.withLock { $0.append(line) } }, read: { prompt in
+            prompts.withLock { $0.append(prompt) }
+            return prompt.contains("Register") ? "y" : "n"
+        })
+        for request in ["Add a CONTRIBUTING.md with three bullet points", "Add a CHANGELOG.md with one entry"] {
+            let code = await GobyTerminalWorkflow(transport: InProcessTransport(handler: handler), options: try GobyCLIOptions([request]),
+                                                  directory: root, io: io).execute()
+            #expect(code == 2, Comment(rawValue: lines.withLock { $0 }.joined(separator: "\n")))
+        }
+        let output = lines.withLock { $0 }
+        #expect(output.filter { $0.contains("Plan cancelled. Nothing ran.") }.count == 2, Comment(rawValue: output.joined(separator: "\n")))
+        #expect(!output.contains { $0.contains("already needs review") })
+        #expect(prompts.withLock { $0 }.filter { $0.contains("Approve this exact plan") }.count == 2)
+        let state = try await GADHostIPCGobyClient(transport: InProcessTransport(handler: handler), deviceID: .init(rawValue: "cli-local-client")).snapshot()
+        #expect(state.plan == nil)
+        #expect(state.runs.allSatisfy { $0.status != .running && $0.status != .completed })
+        try await runtime.stop()
+    }
+
+    @Test("Ctrl-C outside a session detaches as before")
+    func interruptOutsideSession() async throws {
+        let workflow = GobyTerminalWorkflow(transport: InProcessTransport(handler: NoHost()), options: try GobyCLIOptions(["status"]),
+                                            directory: FileManager.default.temporaryDirectory, io: OutputRecorder().io)
+        #expect(await workflow.interrupt() == .detach)
+    }
+}
+
+private struct NoHost: GADHostIPCRequestHandling {
+    func handle(_ request: GADHostIPCRequest) async -> GADHostIPCResponse {
+        GADHostIPCResponse(requestID: request.requestID, hostVersion: "none", generatedAt: .now, isReadOnly: true, error: "No host.")
+    }
 }
 
 final class OutputRecorder: Sendable {

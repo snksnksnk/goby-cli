@@ -75,14 +75,24 @@ public enum GobyCLIEntrypoint {
                 return try await GobyCLISetupCommands(configuration: configuration, options: options, io: .standard()).execute()
             }
             signal(SIGINT, SIG_IGN)
+            // Ctrl-C detaches; it never cancels host work. Inside an interactive
+            // session it returns to Goby's prompt instead of leaving.
+            let router = GobyInterruptRouter()
             let detach = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
             detach.setEventHandler {
-                if json {
-                    FileHandle.standardOutput.write(Data("{\"data\":\"Detached; the host keeps running.\",\"schemaVersion\":1,\"type\":\"detached\"}\n".utf8))
-                } else {
-                    FileHandle.standardError.write(Data("\nDetached; the host keeps running. Use goby watch or goby cancel.\n".utf8))
+                Task { @MainActor in
+                    let outcome = await router.workflow?.interrupt() ?? .detach
+                    if outcome == .handled { return }
+                    if isatty(STDERR_FILENO) != 0 { FileHandle.standardError.write(Data("\r\u{1B}[2K".utf8)) }
+                    if json {
+                        FileHandle.standardOutput.write(Data("{\"data\":\"Detached; the host keeps running.\",\"schemaVersion\":1,\"type\":\"detached\"}\n".utf8))
+                    } else if case let .leave(farewell) = outcome {
+                        FileHandle.standardOutput.write(Data(("\n" + farewell + "\n").utf8))
+                    } else {
+                        FileHandle.standardError.write(Data("\nDetached; the host keeps running. Use goby watch or goby cancel.\n".utf8))
+                    }
+                    exit(0)
                 }
-                exit(0)
             }
             detach.resume()
             defer { detach.cancel() }
@@ -93,8 +103,10 @@ public enum GobyCLIEntrypoint {
             } else {
                 transport = try await GobyLazyHostConnection(configuration: configuration).connect()
             }
-            return await GobyTerminalWorkflow(transport: transport, options: options, directory: directory,
-                                               io: .standard(), preferences: try GobyCLIProjectPreferences(store: configuration.storeDirectory)).execute()
+            let workflow = GobyTerminalWorkflow(transport: transport, options: options, directory: directory,
+                                                io: .standard(), preferences: try GobyCLIProjectPreferences(store: configuration.storeDirectory))
+            router.workflow = workflow
+            return await workflow.execute()
         } catch {
             let code = GobyCLIExitCode.forError(error)
             if json {
@@ -135,6 +147,11 @@ public enum GobyCLIEntrypoint {
             throw GobyTerminalError("The standalone CLI cannot open the app's store. Use the separate CLI store.", code: 4)
         }
     }
+}
+
+@MainActor
+private final class GobyInterruptRouter {
+    var workflow: GobyTerminalWorkflow?
 }
 
 private struct EntryError: Codable, Sendable { let message: String; let exitCode: Int32 }
