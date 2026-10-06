@@ -61,6 +61,16 @@ struct TerminalPersonaTests {
         #expect(step.hasSuffix("…"))
     }
 
+    @Test("Answers render light Markdown when decorated, and stay untouched when plain")
+    func markdownRendering() {
+        let source = "## Handoff notes\n- Read **README.md** with `cat`\n```\nswift test\n```\nSee [docs](https://example.com)."
+        #expect(GobyTerminalPresenter(style: .plain, width: 80).markdown(source) == source)
+        let styled = GobyTerminalPresenter(style: GobyTerminalStyle(enabled: true), width: 80).markdown(source)
+        let visible = styled.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
+        #expect(visible == "Handoff notes\n• Read README.md with cat\n│ swift test\nSee docs (https://example.com).", Comment(rawValue: visible.debugDescription))
+        #expect(styled.contains("\u{1B}[1m"))
+    }
+
     @Test("A non-interactive terminal never decorates")
     func nonInteractiveIOIsPlain() {
         let io = GobyTerminalIO(interactive: false, write: { _ in }, read: { _ in nil },

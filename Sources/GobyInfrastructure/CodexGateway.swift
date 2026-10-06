@@ -82,6 +82,9 @@ public actor CodexGateway: CodexServing {
     private var interruptingQuarantinedThreads = Set<String>()
     private var approvalSessionByAssignment: [AssignmentID: ApprovalSessionID] = [:]
     private var outputByAssignment: [AssignmentID: String] = [:]
+    /// The agent message item each assignment's output last came from, so
+    /// separate messages become paragraphs instead of running together.
+    private var messageItemByAssignment: [AssignmentID: String] = [:]
     private var resourcesByAssignment: [AssignmentID: [SharedResource]] = [:]
     private var approvals: [String: PendingApproval] = [:]
     private var approvalResponsesInFlight = Set<String>()
@@ -484,6 +487,7 @@ public actor CodexGateway: CodexServing {
         resourcesByAssignment[assignment.id] = resources
         approvalSessionByAssignment[assignment.id] = .make()
         outputByAssignment[assignment.id] = ""
+        messageItemByAssignment.removeValue(forKey: assignment.id)
 
         do {
             let response = try await transport.request(
@@ -545,6 +549,7 @@ public actor CodexGateway: CodexServing {
         projectByAssignment.removeValue(forKey: assignmentID)
         resourcesByAssignment.removeValue(forKey: assignmentID)
         outputByAssignment.removeValue(forKey: assignmentID)
+        messageItemByAssignment.removeValue(forKey: assignmentID)
         if let threadID {
             assignmentByThread.removeValue(forKey: threadID)
         } else {
@@ -722,6 +727,7 @@ public actor CodexGateway: CodexServing {
         projectByAssignment[assignment.id] = project.id
         resourcesByAssignment[assignment.id] = resources
         outputByAssignment[assignment.id] = ""
+        messageItemByAssignment.removeValue(forKey: assignment.id)
         activeTurnByAssignment[assignment.id] = ActiveTurn(threadID: threadID, turnID: turnID)
         approvalSessionByAssignment[assignment.id] = .make()
         startingAssignmentByThread.removeValue(forKey: threadID)
@@ -843,6 +849,7 @@ public actor CodexGateway: CodexServing {
         activeTurnByAssignment.removeAll()
         approvalSessionByAssignment.removeAll()
         outputByAssignment.removeAll()
+        messageItemByAssignment.removeAll()
         resourcesByAssignment.removeAll()
         approvals.removeAll()
         fileChangeReviews.removeAll()
@@ -919,6 +926,7 @@ public actor CodexGateway: CodexServing {
             projectByAssignment.removeAll()
             helperActivityByThread.removeAll()
             outputByAssignment.removeAll()
+            messageItemByAssignment.removeAll()
             resourcesByAssignment.removeAll()
             approvals.removeAll()
             fileChangeReviews.removeAll()
@@ -930,6 +938,13 @@ public actor CodexGateway: CodexServing {
         case "item/agentMessage/delta":
             guard let assignmentID, let delta = message.params?["delta"]?.stringValue else { return }
             var output = outputByAssignment[assignmentID, default: ""]
+            // Same rule as temporary chat: a new message item starts a paragraph.
+            let itemID = message.params?["itemId"]?.stringValue
+            if let itemID, let previous = messageItemByAssignment[assignmentID], itemID != previous,
+               !output.isEmpty, !output.hasSuffix("\n\n") {
+                output.append(output.hasSuffix("\n") ? "\n" : "\n\n")
+            }
+            if let itemID { messageItemByAssignment[assignmentID] = itemID }
             output.append(delta)
             if output.count > 32_000 { output = String(output.suffix(32_000)) }
             outputByAssignment[assignmentID] = output

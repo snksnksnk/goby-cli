@@ -180,7 +180,8 @@ public struct GobySessionViews: Sendable {
             }
         }
         lines.append("")
-        lines.append(safe(WorkflowTextFormatter.result(run)).split(separator: "\n", omittingEmptySubsequences: false).map { "  " + $0 }.joined(separator: "\n"))
+        let answer = GobyTerminalPresenter(style: style, width: 100).markdown(safe(WorkflowTextFormatter.result(run)))
+        lines.append(answer.split(separator: "\n", omittingEmptySubsequences: false).map { "  " + $0 }.joined(separator: "\n"))
         if let approval = state.approvals.first(where: { $0.runID == run.id }) {
             lines.append("")
             lines.append(style.warning("! ") + "Needs your OK: " + safe(approval.summary) + style.dim(" · /approve \(approval.id)"))

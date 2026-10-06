@@ -52,6 +52,8 @@ struct CLIWorkflowTests {
         #expect(!output.lines.contains { $0.contains(root.path) })
         let cliRun = try #require(runtime.store?.runs.first)
         #expect(cliRun.status == .completed)
+        // Separate agent messages stay separate paragraphs in the result.
+        #expect(cliRun.outcome?.contains("Reading the README.\n\nFixture completed the README summary.") == true, Comment(rawValue: cliRun.outcome ?? "nil"))
         let projection = try await GADHostIPCGobyClient(transport: GobyUnixSocketTransport(socketURL: url), deviceID: .init(rawValue: "cli-local-client")).snapshot()
         let id = try #require(projection.runs.first?.id.rawValue)
         let resultCode = await GobyTerminalWorkflow(transport: GobyUnixSocketTransport(socketURL: url), options: try GobyCLIOptions(["result", id]),
@@ -230,6 +232,7 @@ for line in sys.stdin:
     send({'id': request['id'], 'result': result})
     if method == 'turn/start':
         time.sleep(0.2)
-        send({'method': 'item/agentMessage/delta', 'params': {'threadId': 'fixture-thread', 'turnId': 'fixture-turn', 'delta': 'Fixture completed the README summary.'}})
+        send({'method': 'item/agentMessage/delta', 'params': {'threadId': 'fixture-thread', 'turnId': 'fixture-turn', 'itemId': 'message-1', 'delta': 'Reading the README.'}})
+        send({'method': 'item/agentMessage/delta', 'params': {'threadId': 'fixture-thread', 'turnId': 'fixture-turn', 'itemId': 'message-2', 'delta': 'Fixture completed the README summary.'}})
         send({'method': 'turn/completed', 'params': {'threadId': 'fixture-thread', 'turn': {'id': 'fixture-turn', 'status': 'completed'}}})
 """#

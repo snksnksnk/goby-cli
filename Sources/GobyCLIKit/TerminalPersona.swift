@@ -184,7 +184,7 @@ public struct GobyTerminalPresenter: Sendable {
         case .cancelled: style.dim("− ") + style.bold("Cancelled") + style.dim(time)
         default: WorkflowTextFormatter.status(run.status)
         }
-        let body = safe(WorkflowTextFormatter.result(run))
+        let body = markdown(safe(WorkflowTextFormatter.result(run)))
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { "  " + $0 }
             .joined(separator: "\n")
@@ -227,6 +227,66 @@ public struct GobyTerminalPresenter: Sendable {
          "",
          style.dim("Ctrl-C detaches from a run without cancelling it. Run goby help for every command.")
         ].joined(separator: "\n")
+    }
+
+    /// Light Markdown for answers: headings, bullets, emphasis, inline code,
+    /// fenced code and links. Callers sanitize first; plain style is unchanged.
+    public func markdown(_ text: String) -> String {
+        guard style.enabled else { return text }
+        var inFence = false
+        var lines: [String] = []
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                inFence.toggle()
+                continue
+            }
+            if inFence {
+                lines.append(style.dim("│ ") + style.accent(raw))
+                continue
+            }
+            if let level = trimmed.firstIndex(where: { $0 != "#" }), trimmed.hasPrefix("#"),
+               trimmed.distance(from: trimmed.startIndex, to: level) <= 6, trimmed[level] == " " {
+                lines.append(style.bold(String(trimmed[level...]).trimmingCharacters(in: .whitespaces)))
+                continue
+            }
+            var line = raw
+            let indent = String(line.prefix { $0 == " " })
+            let rest = line.dropFirst(indent.count)
+            if rest.hasPrefix("- ") || rest.hasPrefix("* ") {
+                line = indent + style.accent("•") + " " + rest.dropFirst(2)
+            }
+            lines.append(inline(line))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func inline(_ line: String) -> String {
+        var result = line
+        let rules: [(String, (String) -> String)] = [
+            (#"\*\*([^*\n]+)\*\*"#, { style.bold($0) }),
+            (#"`([^`\n]+)`"#, { style.accent($0) }),
+            (#"\[([^\]\n]+)\]\(([^)\s]+)\)"#, { $0 }),
+        ]
+        for (pattern, render) in rules {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let source = result as NSString
+            var rebuilt = ""
+            var cursor = 0
+            for match in regex.matches(in: result, range: NSRange(location: 0, length: source.length)) {
+                rebuilt += source.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
+                let captured = source.substring(with: match.range(at: 1))
+                if match.numberOfRanges > 2 {
+                    rebuilt += captured + style.dim(" (" + source.substring(with: match.range(at: 2)) + ")")
+                } else {
+                    rebuilt += render(captured)
+                }
+                cursor = match.range.location + match.range.length
+            }
+            rebuilt += source.substring(from: cursor)
+            result = rebuilt
+        }
+        return result
     }
 
     /// Provider and repository text never reaches the terminal unsanitized.

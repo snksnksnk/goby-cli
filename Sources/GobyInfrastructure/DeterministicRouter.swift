@@ -61,7 +61,7 @@ public struct DeterministicRouter: Routing {
                         projectID: project.id,
                         in: lab.providerBindings
                     ),
-                    reason: "Directly assigned to \(names) from the map selection."
+                    reason: "Directly assigned to \(names)."
                 )
             }
 

@@ -927,7 +927,7 @@ struct InfrastructureTests {
                     agentID: selectedAgent.id,
                     bindingID: ProviderAgentBinding.migratedCodexBinding(for: selectedAgent).id
                 )],
-                reason: "Directly assigned to Beta Web Agent from the map selection."
+                reason: "Directly assigned to Beta Web Agent."
             )
         ])
         #expect(plan.confidence == 1)
