@@ -109,16 +109,21 @@ public struct GobyTerminalIO: Sendable {
     public let authenticateOwner: @Sendable () async throws -> String
     /// Goby's terminal character. Plain unless an interactive colour terminal is detected.
     public let style: GobyTerminalStyle
+    /// Failures for the local log and, with consent, the maintainer's reports:
+    /// kind, command, provider, message.
+    public let report: @Sendable (GobyReportEvent.Kind, String, String?, String) -> Void
     public init(interactive: Bool, write: @escaping @Sendable (String) -> Void,
                 read: @escaping @Sendable (String) async -> String?,
                 readSecret: @escaping @Sendable (String) async -> String? = { _ in nil },
                 authenticateOwner: @escaping @Sendable () async throws -> String = { throw GobyTerminalError("Device-owner authentication is required.", code: 4) },
-                style: GobyTerminalStyle = .plain) {
+                style: GobyTerminalStyle = .plain,
+                report: @escaping @Sendable (GobyReportEvent.Kind, String, String?, String) -> Void = { _, _, _, _ in }) {
+        self.report = report
         self.interactive = interactive; self.write = write; self.read = read
         self.readSecret = readSecret; self.authenticateOwner = authenticateOwner
         self.style = interactive ? style : .plain
     }
-    public static func standard() -> Self {
+    public static func standard(reporter: GobyReporter? = nil) -> Self {
         let interactive = isatty(STDIN_FILENO) != 0 && isatty(STDOUT_FILENO) != 0
         return .init(interactive: interactive,
               write: { FileHandle.standardOutput.write(Data(($0 + "\n").utf8)) },
@@ -132,7 +137,10 @@ public struct GobyTerminalIO: Sendable {
                       return String(cString: value)
                   }
               }, authenticateOwner: { try await GobyCLIEnvironment.authenticateOwner() },
-              style: interactive ? .detect() : .plain)
+              style: interactive ? .detect() : .plain,
+              report: { kind, command, provider, message in
+                  if let reporter { reporter.record(reporter.event(kind, command: command, provider: provider, message: message)) }
+              })
     }
 }
 
@@ -197,6 +205,7 @@ public actor GobyTerminalWorkflow {
             spinner.stop()
             await client.disconnect()
             let code = GobyCLIExitCode.forError(error)
+            reportFailure(error, code: code)
             try? emit("error", data: CLIErrorOutput(message: error.localizedDescription, exitCode: code), text: error.localizedDescription,
                       styled: presenter.error(error.localizedDescription))
             return code
@@ -444,8 +453,26 @@ public actor GobyTerminalWorkflow {
         defer { inSession = false }
         let provider = (try? await selectedProvider(in: try await client.snapshot()))?.displayName ?? providerName
         io.write(presenter.banner(version: GobyCLIEnvironment.version, repository: directory.lastPathComponent, provider: provider))
+        // Keystroke editing with / suggestions on a real terminal.
+        let editor = decorated && io.interactive
+            ? GobyLineEditor(style: io.style, commands: Self.sessionCommands.map { .init(name: $0.name, usage: $0.usage, summary: $0.summary) })
+            : nil
         while true {
-            guard let line = await io.read("\n" + presenter.promptMarker) else {
+            let line: String?
+            if let editor {
+                io.write("")
+                let prompt = presenter.promptMarker
+                switch (try? await GobySocketIO.offload { editor.readLine(prompt: prompt) }) ?? .endOfInput {
+                case let .line(text): line = text
+                case .endOfInput: line = nil
+                case .interrupt:
+                    io.write(presenter.farewell())
+                    return 0
+                }
+            } else {
+                line = await io.read("\n" + presenter.promptMarker)
+            }
+            guard let line else {
                 io.write("\n" + presenter.farewell())
                 return 0
             }
@@ -471,6 +498,7 @@ public actor GobyTerminalWorkflow {
             } catch {
                 spinner.stop()
                 let code = GobyCLIExitCode.forError(error)
+                reportFailure(error, code: code)
                 try? emit("error", data: CLIErrorOutput(message: error.localizedDescription, exitCode: code), text: error.localizedDescription,
                           styled: presenter.error(error.localizedDescription))
             }
@@ -572,6 +600,13 @@ public actor GobyTerminalWorkflow {
             }
             _ = try await perform([name == "status" ? "home" : name] + rest)
         }
+    }
+
+    /// Unexpected failures (exit 1 or 3) go to the reporter; decisions and
+    /// policy refusals are expected and stay out of reports.
+    private func reportFailure(_ error: any Error, code: Int32) {
+        guard code == 1 || code == 3 else { return }
+        io.report(.error, inSession ? "session" : (options.arguments.first ?? "request"), sessionProvider?.rawValue, error.localizedDescription)
     }
 
     /// Cancels a declined plan and clears the request it was drafted from, so
@@ -828,6 +863,11 @@ public actor GobyTerminalWorkflow {
                 }
             }
             if run.status.isFinished {
+                if run.status == .failed {
+                    let reasons = run.assignments.compactMap(\.statusReason).filter { !$0.isEmpty }
+                    io.report(.runFailed, options.arguments.first ?? "request", run.assignments.first?.providerID.rawValue,
+                              reasons.isEmpty ? "The run failed without a reason." : reasons.joined(separator: " | "))
+                }
                 let elapsed = spinner.elapsed
                 spinner.stop()
                 try emit("result", data: CLIRunOutput(run), text: WorkflowTextFormatter.result(run),

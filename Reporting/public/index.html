@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goby Reports</title>
+<style>
+  :root { --bg:#f6f7f8; --panel:#fff; --text:#16181b; --dim:#6b7179; --line:#e3e5e8; --accent:#0f8b8d; --bad:#c2410c; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111315; --panel:#1a1d20; --text:#e8eaed; --dim:#9aa0a6; --line:#2a2e33; --accent:#4fc3c5; --bad:#fb923c; } }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system, system-ui, sans-serif; }
+  main { max-width:1000px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:20px; margin:0 0 4px; } .dim { color:var(--dim); }
+  form, .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:16px 0; }
+  input, select, button { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--text); }
+  button { background:var(--accent); border-color:var(--accent); color:#fff; cursor:pointer; }
+  .group { background:var(--panel); border:1px solid var(--line); border-radius:10px; margin:10px 0; }
+  .group summary { padding:12px 14px; cursor:pointer; display:flex; gap:12px; align-items:baseline; }
+  .count { font-weight:600; color:var(--bad); min-width:2.5em; }
+  .msg { flex:1; overflow-wrap:anywhere; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { text-align:left; padding:6px 14px; border-top:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:500; }
+  @media (max-width:600px) { .hide-sm { display:none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Goby error reports</h1>
+  <div class="dim">Redacted failures from machines that opted in. Grouped by message.</div>
+  <form id="auth"><input id="token" type="password" placeholder="Admin token" autocomplete="off" size="32"><button>Load</button></form>
+  <div class="bar"><select id="kind"><option value="">All kinds</option><option>error</option><option>run-failed</option></select>
+    <select id="version"><option value="">All versions</option></select><span id="summary" class="dim"></span></div>
+  <div id="groups"></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let reports = [];
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+try { $("token").value = localStorage.getItem("gobyAdminToken") || ""; } catch {}
+async function load(event) {
+  event?.preventDefault();
+  const token = $("token").value.trim();
+  try { localStorage.setItem("gobyAdminToken", token); } catch {}
+  const response = await fetch("/api/reports?limit=2000", { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) { $("summary").textContent = `Could not load reports (${response.status}).`; return; }
+  reports = (await response.json()).reports;
+  const versions = [...new Set(reports.map((r) => r.version))].sort().reverse();
+  $("version").innerHTML = '<option value="">All versions</option>' + versions.map((v) => `<option>${esc(v)}</option>`).join("");
+  render();
+}
+function render() {
+  const kind = $("kind").value, version = $("version").value;
+  const shown = reports.filter((r) => (!kind || r.kind === kind) && (!version || r.version === version));
+  const groups = new Map();
+  for (const r of shown) {
+    const key = `${r.kind} · ${r.command} · ${r.message}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  const machines = new Set(shown.map((r) => r.installationID)).size;
+  $("summary").textContent = `${shown.length} report(s) · ${groups.size} distinct · ${machines} machine(s)`;
+  $("groups").innerHTML = [...groups.entries()].sort((a, b) => b[1].length - a[1].length).map(([key, items]) => `
+    <details class="group"><summary><span class="count">${items.length}×</span><span class="msg">${esc(key)}</span>
+      <span class="dim hide-sm">${esc(items[0].receivedAt?.slice(0, 16).replace("T", " "))}</span></summary>
+      <table><tr><th>When</th><th>Version</th><th class="hide-sm">macOS · Mac</th><th>Provider</th><th>Exit</th><th class="hide-sm">Machine</th></tr>
+      ${items.slice(0, 50).map((r) => `<tr><td>${esc(r.receivedAt?.slice(0, 19).replace("T", " "))}</td><td>${esc(r.version)}</td>
+        <td class="hide-sm">${esc(r.macOS)} · ${esc(r.architecture)}</td><td>${esc(r.provider ?? "—")}</td><td>${esc(r.exitCode ?? "—")}</td>
+        <td class="hide-sm">${esc(r.installationID.slice(0, 8))}</td></tr>`).join("")}</table></details>`).join("");
+}
+$("auth").addEventListener("submit", load);
+$("kind").addEventListener("change", render);
+$("version").addEventListener("change", render);
+if ($("token").value) load();
+</script>
+</body>
+</html>

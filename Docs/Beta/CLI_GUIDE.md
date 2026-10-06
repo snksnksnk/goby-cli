@@ -92,6 +92,10 @@ Session commands mirror the Goby app's screens. Each is also a subcommand
 | `/approve`, `/deny`, `/pause`, `/resume`, `/cancel`, `/follow-up` | Run controls and approvals |
 | `/commit`, `/push`, `/ask`, `/use` | Delivery, Temporary Chat and default scope |
 
+Type `/` at the prompt to see matching commands as you type. Tab or → accepts
+the highlighted one, ↑ ↓ move through the list, Esc closes it, and Enter runs
+it. Without a list, ↑ ↓ walk back through earlier requests in the session.
+
 Run IDs can be shortened to any unambiguous prefix, such as the eight
 characters `/runs` shows. Without an ID, `/show` and `/diff` use the active run,
 or the most recent one. An unknown `/word` is never sent to the provider as a
@@ -177,6 +181,21 @@ host restart. Its disposable cache is in the CLI's Caches namespace outside the
 store. Diagnostics use the existing redacted export, excluding prompts, names,
 paths, outcomes, credential values and raw provider logs. Review the export
 before voluntarily sharing it.
+
+## Logs and error reports
+
+goby keeps a detailed local log at `~/Library/Logs/Goby CLI/goby.log`: each
+command with its exit code and duration, errors, and failed runs. It is
+redacted, rotated at 5 MB, and never leaves the Mac by itself. `goby logs`
+shows the newest entries.
+
+The first time goby is used interactively it asks whether to send anonymous
+error reports to its maintainer. With consent, failures (error messages and
+failed-run reasons, goby and macOS version, Mac type, and an anonymous
+installation ID) are sent in the background with a short timeout and queued
+when offline. Prompts, code, file paths and keys are never included.
+`goby config reports on|off|status` changes the choice; turning reports off
+deletes anything still queued. The receiving service is in `Reporting/`.
 
 ## Automations
 

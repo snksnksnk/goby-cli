@@ -27,6 +27,7 @@ public enum GobyCLIEntrypoint {
     goby login codex [--device|--api-key]   reuses an existing Codex login
     goby login copilot [--token]            reuses an existing gh login
     goby diagnostics | ask "<question>" | ask end
+    goby logs | config reports on|off|status    local log and opt-in error reports
     goby commit <run> | push <run> [--yes]
     goby import-agents | use <project-id>... | use cwd
     goby uninstall [--yes] | --version
@@ -39,11 +40,31 @@ public enum GobyCLIEntrypoint {
     Ctrl-C detaches. Use goby cancel <run> to cancel.
     Exit codes: 0 ok, 1 failed, 2 decision needed, 3 host unavailable, 4 policy rejected.
     """
+    /// Every command is logged locally; failures may also be reported (with
+    /// consent). Reporting is bounded and never changes the exit code.
     @MainActor
     public static func run(arguments: [String]) async -> Int32 {
+        let reporter = GobyReporter()
+        let started = ContinuousClock.now
+        let command = (try? GobyCLIOptions(arguments))?.arguments.first ?? (arguments.isEmpty ? "session" : "request")
+        let code = await dispatch(arguments: arguments, reporter: reporter)
+        reporter.record(reporter.event(.command, command: command, exitCode: code, duration: .now - started))
+        await reporter.flush()
+        return code
+    }
+
+    @MainActor
+    private static func dispatch(arguments: [String], reporter: GobyReporter) async -> Int32 {
         let json = arguments.contains("--json")
         do {
             let options = try GobyCLIOptions(arguments)
+            if options.arguments.first == "config" || options.arguments.first == "logs" {
+                return try reporting(options, reporter: reporter)
+            }
+            if reporter.consent == nil, !options.json, isatty(STDIN_FILENO) != 0, isatty(STDOUT_FILENO) != 0,
+               !["version", "help", "host"].contains(options.arguments.first ?? "") {
+                askForReportConsent(reporter)
+            }
             if options.arguments == ["version"] {
                 try printValue(type: "version", value: GobyCLIEnvironment.version, json: options.json)
                 return 0
@@ -75,7 +96,7 @@ public enum GobyCLIEntrypoint {
                 return 0
             }
             if ["doctor", "login", "logout", "uninstall"].contains(options.arguments.first ?? "") {
-                return try await GobyCLISetupCommands(configuration: configuration, options: options, io: .standard()).execute()
+                return try await GobyCLISetupCommands(configuration: configuration, options: options, io: .standard(reporter: reporter)).execute()
             }
             signal(SIGINT, SIG_IGN)
             // Ctrl-C detaches; it never cancels host work. Inside an interactive
@@ -107,11 +128,15 @@ public enum GobyCLIEntrypoint {
                 transport = try await GobyLazyHostConnection(configuration: configuration).connect()
             }
             let workflow = GobyTerminalWorkflow(transport: transport, options: options, directory: directory,
-                                                io: .standard(), preferences: try GobyCLIProjectPreferences(store: configuration.storeDirectory))
+                                                io: .standard(reporter: reporter), preferences: try GobyCLIProjectPreferences(store: configuration.storeDirectory))
             router.workflow = workflow
             return await workflow.execute()
         } catch {
             let code = GobyCLIExitCode.forError(error)
+            if code == 1 || code == 3 {
+                reporter.record(reporter.event(.error, command: (try? GobyCLIOptions(arguments))?.arguments.first ?? "request",
+                                               exitCode: code, message: error.localizedDescription))
+            }
             if json {
                 try? printValue(type: "error", value: EntryError(message: error.localizedDescription, exitCode: code), json: true)
             } else {
@@ -120,6 +145,55 @@ public enum GobyCLIEntrypoint {
             return code
         }
     }
+    /// Asked once, on the first interactive use.
+    private static func askForReportConsent(_ reporter: GobyReporter) {
+        let style = GobyTerminalStyle.detect()
+        let presenter = GobyTerminalPresenter(style: style)
+        let lines = [
+            presenter.note("Help improve Goby? I can send anonymous error reports to its maintainer."),
+            style.dim("  They include error messages, goby and macOS version, and Mac type."),
+            style.dim("  Never your prompts, code, file paths or keys. Change it anytime: goby config reports on|off"),
+        ]
+        FileHandle.standardError.write(Data((lines.joined(separator: "\n") + "\n").utf8))
+        FileHandle.standardError.write(Data((style.enabled ? presenter.question("Send error reports? [y/N] ") : "Send error reports? [y/N] ").utf8))
+        let answer = readLine()?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+        let consent: GobyReporter.Consent = ["y", "yes"].contains(answer) ? .on : .off
+        reporter.setConsent(consent)
+        FileHandle.standardError.write(Data(((consent == .on ? presenter.success("Thanks! Error reports are on.") : presenter.note("Okay, reports stay off. Your local log still helps: goby logs")) + "\n\n").utf8))
+    }
+
+    /// goby config reports on|off|status, and goby logs [--path].
+    private static func reporting(_ options: GobyCLIOptions, reporter: GobyReporter) throws -> Int32 {
+        let args = options.arguments
+        if args.first == "logs" {
+            let lines = reporter.recentLog()
+            if options.json {
+                try printValue(type: "logs", value: CLILogsOutput(path: reporter.logURL.path, lines: lines), json: true)
+            } else {
+                print(lines.isEmpty ? "No log entries yet." : lines.joined(separator: "\n"))
+                print("Log: \(reporter.logURL.path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))")
+            }
+            return 0
+        }
+        guard args.count >= 2, args[1] == "reports" else { throw GobyTerminalError("Usage: goby config reports on|off|status") }
+        switch args.count == 3 ? args[2] : "status" {
+        case "on": reporter.setConsent(.on)
+        case "off": reporter.setConsent(.off)
+        case "status": break
+        default: throw GobyTerminalError("Usage: goby config reports on|off|status")
+        }
+        let state = reporter.consent?.rawValue ?? "not asked yet"
+        let destination = reporter.isConfigured ? "configured" : "not configured in this build"
+        try printValue(type: "reports", value: CLIReportsOutput(consent: state, endpoint: destination),
+                       json: options.json, text: "Error reports: \(state) · endpoint \(destination)")
+        return 0
+    }
+
+    private static func printValue<T: Codable & Sendable>(type: String, value: T, json: Bool, text: String) throws {
+        if json { try printValue(type: type, value: value, json: true) }
+        else { FileHandle.standardOutput.write(Data((text + "\n").utf8)) }
+    }
+
     private static func printValue<T: Codable & Sendable>(type: String, value: T, json: Bool) throws {
         if json {
             let encoder = JSONEncoder()
@@ -157,6 +231,8 @@ private final class GobyInterruptRouter {
     var workflow: GobyTerminalWorkflow?
 }
 
+private struct CLILogsOutput: Codable, Sendable { let path: String; let lines: [String] }
+private struct CLIReportsOutput: Codable, Sendable { let consent: String; let endpoint: String }
 private struct EntryError: Codable, Sendable { let message: String; let exitCode: Int32 }
 private actor GobyCLISilentNotifier: RunNotifying, AutomationNotifying {
     func notify(for run: RunRecord) async {}

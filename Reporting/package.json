@@ -1,0 +1,7 @@
+{
+  "name": "goby-reports",
+  "private": true,
+  "type": "module",
+  "description": "Receives redacted goby CLI error reports and shows them to the maintainer.",
+  "engines": { "node": ">=20" }
+}
