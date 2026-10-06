@@ -15,7 +15,7 @@ public struct GobyRuntimeInstaller: Sendable {
         public var directory: String { self == .claude ? "ClaudeAgentSDKBridge" : "CopilotSDKBridge" }
         public var displayName: String { self == .claude ? "Claude" : "Copilot" }
         /// Rough download size, for the prompt.
-        public var approximateMegabytes: Int { self == .claude ? 200 : 80 }
+        public var approximateMegabytes: Int { self == .claude ? 130 : 85 }
 
         public init?(provider: String) {
             switch provider.lowercased() {

@@ -23,15 +23,29 @@ elif [[ -z ${identity} ]]; then
   fi
   identity=${identities[1]}
 fi
+# Notarization credentials can't be read while the screen is locked. Wait for
+# an unlock (up to 30 minutes) rather than fail.
+wait_for_notary_credentials() {
+  local waited=0
+  until xcrun notarytool history --keychain-profile "${notary_profile}" >/dev/null 2>&1; do
+    if (( waited == 0 )); then print -u2 'Waiting for the notarization credentials: unlock this Mac to continue (up to 30 minutes).'; fi
+    (( waited += 15 ))
+    if (( waited > 1800 )); then
+      print -u2 "The notarization profile ${notary_profile} stayed unreadable. Unlock the Mac, or save it again with: xcrun notarytool store-credentials ${notary_profile}"; exit 69
+    fi
+    sleep 15
+  done
+}
 if [[ ${mode} == release || ${mode} == --preflight ]]; then
-  if ! xcrun notarytool history --keychain-profile "${notary_profile}" >/dev/null 2>&1; then
-    print -u2 "The notarization profile ${notary_profile} is unavailable. Save it with: xcrun notarytool store-credentials ${notary_profile}"; exit 69
-  fi
+  wait_for_notary_credentials
 fi
 if [[ ${mode} == --preflight ]]; then
   print 'CLI preflight passed: Developer ID Application and notary profile available; no provisioning profile required.'; exit 0
 fi
 source_commit=$("${script_directory}/verify-release-source.zsh" "${project_root}")
+# Notarization credentials can't be read while the screen is locked. Keep the
+# display awake for the whole run, so an idle Mac doesn't lock mid-release.
+caffeinate -d -i -w $$ &
 if [[ -L ${output} || ${output:A} == / || ${output:A} == ${project_root} ]]; then
   print -u2 'Select a safe release artifact directory.'; exit 64
 fi
@@ -111,6 +125,8 @@ if [[ ${mode} == release ]]; then
   ditto --norsrc --noextattr "${runtimes}" "${notarize_root}/runtimes"
   hdiutil create -quiet -volname "Goby CLI ${version}" -srcfolder "${notarize_root}" -format UDZO "${staging}/${dmg_name}"
   codesign --force --timestamp --sign "${identity}" "${staging}/${dmg_name}"
+  # If the Mac was locked anyway, wait for it to be unlocked rather than fail.
+  wait_for_notary_credentials
   xcrun notarytool submit "${staging}/${dmg_name}" --keychain-profile "${notary_profile}" --wait --output-format json > "${staging}/notary.json"
   python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["status"] == "Accepted", "Notarization was not accepted"' "${staging}/notary.json"
   xcrun stapler staple "${staging}/${dmg_name}"

@@ -580,7 +580,7 @@ public actor GobyTerminalWorkflow {
             "model": [.init("default", "the provider's own choice")] + models,
             "config": [.init("reports", then: [.init("on"), .init("off"), .init("status")])],
             "runtime": [.init("status", "what's installed"),
-                        .init("install", "download a runtime", then: [.init("claude", "about 200 MB"), .init("copilot", "about 80 MB")]),
+                        .init("install", "download a runtime", then: [.init("claude", "about 130 MB"), .init("copilot", "about 85 MB")]),
                         .init("remove", "delete a runtime", then: [.init("claude"), .init("copilot")])],
             "use": [.init("cwd", "back to the current repository")] + projects,
             "agents": projects, "runs": projects, "branches": projects,
