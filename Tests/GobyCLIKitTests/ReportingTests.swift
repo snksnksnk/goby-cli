@@ -115,8 +115,27 @@ struct LineEditorTests {
 
     @Test("Completing a command that takes arguments leaves room to type them")
     func completion() {
-        #expect(GobyLineEditor.completion(for: .init(name: "map", usage: "/map", summary: "")) == "/map")
-        #expect(GobyLineEditor.completion(for: .init(name: "agents", usage: "/agents [project]", summary: "")) == "/agents ")
+        #expect(editor.suggestions(for: "/map").first?.completion == "/map")
+        #expect(editor.suggestions(for: "/agen").first?.completion == "/agents ")
+        #expect(editor.suggestions(for: "/agen").first?.waitsForMore == true)
+    }
+
+    @Test("Arguments are suggested level by level after the command")
+    func argumentSuggestions() {
+        let login = GobyLineEditor(style: .plain, commands: [
+            .init(name: "login", usage: "/login <provider>", summary: "sign in", arguments: [
+                .init("claude", "plan token or API key", then: [.init("--plan"), .init("--api-key")]),
+                .init("codex", "existing Codex login", then: [.init("--device"), .init("--api-key")]),
+                .init("copilot"),
+            ]),
+        ])
+        #expect(login.suggestions(for: "/login ").map(\.name) == ["claude", "codex", "copilot"])
+        #expect(login.suggestions(for: "/login c").count == 3)
+        #expect(login.suggestions(for: "/login cl").map(\.completion) == ["/login claude "])
+        #expect(login.suggestions(for: "/login claude ").map(\.name) == ["--plan", "--api-key"])
+        #expect(login.suggestions(for: "/login claude --p").map(\.completion) == ["/login claude --plan"])
+        #expect(login.suggestions(for: "/login copilot ").isEmpty)
+        #expect(login.suggestions(for: "/login nobody ").isEmpty)
     }
 }
 

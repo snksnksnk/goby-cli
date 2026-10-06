@@ -154,6 +154,10 @@ public enum GobyInterruptOutcome: Equatable, Sendable {
     case detach
 }
 
+/// Runs a setup command (login, logout, doctor, logs, config) exactly as the
+/// shell subcommand would. Provided by the entrypoint, which owns setup.
+public typealias GobyCommandRunner = @Sendable ([String]) async -> Int32
+
 public actor GobyTerminalWorkflow {
     private let transport: any GADHostIPCTransporting
     private let options: GobyCLIOptions
@@ -165,6 +169,7 @@ public actor GobyTerminalWorkflow {
     private let preferences: GobyCLIProjectPreferences?
     private let presenter: GobyTerminalPresenter
     private let spinner: GobySpinner
+    private let setupCommands: GobyCommandRunner?
     private var providerName = "your agent"
     /// Session choices made with /provider and /model; they apply to new requests.
     private var sessionProvider: AgentProviderID?
@@ -188,9 +193,10 @@ public actor GobyTerminalWorkflow {
     private var decorated: Bool { io.style.enabled && !options.json }
 
     public init(transport: any GADHostIPCTransporting, options: GobyCLIOptions,
-                directory: URL, io: GobyTerminalIO, preferences: GobyCLIProjectPreferences? = nil) {
+                directory: URL, io: GobyTerminalIO, preferences: GobyCLIProjectPreferences? = nil,
+                setupCommands: GobyCommandRunner? = nil) {
         self.transport = transport; self.options = options; self.directory = directory
-        self.io = io; self.preferences = preferences
+        self.io = io; self.preferences = preferences; self.setupCommands = setupCommands
         client = GADHostIPCGobyClient(transport: transport, deviceID: deviceID)
         presenter = GobyTerminalPresenter(style: io.style)
         spinner = GobySpinner(style: io.style)
@@ -455,7 +461,7 @@ public actor GobyTerminalWorkflow {
         io.write(presenter.banner(version: GobyCLIEnvironment.version, repository: directory.lastPathComponent, provider: provider))
         // Keystroke editing with / suggestions on a real terminal.
         let editor = decorated && io.interactive
-            ? GobyLineEditor(style: io.style, commands: Self.sessionCommands.map { .init(name: $0.name, usage: $0.usage, summary: $0.summary) })
+            ? GobyLineEditor(style: io.style, commands: await editorCommands())
             : nil
         while true {
             let line: String?
@@ -544,10 +550,47 @@ public actor GobyTerminalWorkflow {
         ("push", "/push <run>", "review and push, separately"),
         ("ask", "/ask <question>", "temporary chat, no project access"),
         ("use", "/use <project…> | cwd", "set the default project scope"),
+        ("login", "/login <claude|codex|copilot>", "sign in, reusing an existing plan, login or key"),
+        ("logout", "/logout <provider>", "remove goby's saved credential for a provider"),
+        ("doctor", "/doctor", "check providers, runtime and setup"),
+        ("logs", "/logs", "recent entries from the local log"),
+        ("config", "/config reports on|off|status", "error report preference"),
         ("clear", "/clear", "clear the screen"),
         ("help", "/help", "this list"),
         ("exit", "/exit", "leave; the host keeps running"),
     ]
+
+    /// Session commands with the arguments the / list can offer: fixed
+    /// choices, plus this host's project names and the provider's models.
+    private func editorCommands() async -> [GobyLineEditor.Command] {
+        let state = try? await client.snapshot()
+        let providers: [GobyLineEditor.Argument] = [.init("codex"), .init("claude"), .init("copilot")]
+        let projects = (state?.projects ?? []).map { GobyLineEditor.Argument($0.name, $0.platforms.map(\.displayName).joined(separator: ", ")) }
+        let provider = state.flatMap { try? selectedProviderSync(in: $0) } ?? .codex
+        let models = (state?.providerAccounts.first { $0.providerID == provider }?.availableModels ?? []).map { GobyLineEditor.Argument($0) }
+        let arguments: [String: [GobyLineEditor.Argument]] = [
+            "login": [
+                .init("claude", "paste a plan token (claude setup-token) or API key", then: [.init("--plan", "plan token only"), .init("--api-key", "API key only")]),
+                .init("codex", "reuses your existing Codex login", then: [.init("--device", "sign in with a code"), .init("--api-key", "OpenAI API key")]),
+                .init("copilot", "reuses your existing gh login", then: [.init("--token", "paste a GitHub token")]),
+            ],
+            "logout": providers,
+            "provider": providers,
+            "model": [.init("default", "the provider's own choice")] + models,
+            "config": [.init("reports", then: [.init("on"), .init("off"), .init("status")])],
+            "use": [.init("cwd", "back to the current repository")] + projects,
+            "agents": projects, "runs": projects, "branches": projects,
+        ]
+        return Self.sessionCommands.map { .init(name: $0.name, usage: $0.usage, summary: $0.summary, arguments: arguments[$0.name] ?? []) }
+    }
+
+    /// The provider choice without refreshing accounts, for building suggestions.
+    private func selectedProviderSync(in state: DashboardProjection) throws -> AgentProviderID {
+        if options.hasExplicitProvider { return options.providerID }
+        if let sessionProvider { return sessionProvider }
+        let connected = state.providerAccounts.filter { if case .connected = $0.connectionState { true } else { false } }.map(\.providerID)
+        return connected.contains(.codex) || connected.isEmpty ? .codex : connected[0]
+    }
 
     static func isSlashCommand(_ text: String) -> Bool {
         guard text.hasPrefix("/"), let first = text.split(separator: " ").first else { return false }
@@ -566,6 +609,10 @@ public actor GobyTerminalWorkflow {
             io.write("\u{1B}[2J\u{1B}[H")
         case "status", "home":
             try await status()
+        case "login", "logout", "doctor", "logs", "config":
+            guard let setupCommands else { throw GobyTerminalError("Run goby \(name) from your shell.") }
+            spinner.stop()
+            _ = await setupCommands([name] + rest)
         case "provider":
             guard let value = rest.first else {
                 _ = try await perform(["providers"])

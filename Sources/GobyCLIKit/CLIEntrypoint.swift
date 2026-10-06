@@ -127,8 +127,22 @@ public enum GobyCLIEntrypoint {
             } else {
                 transport = try await GobyLazyHostConnection(configuration: configuration).connect()
             }
+            // The session's /login, /logout, /doctor, /logs and /config run the
+            // same code as the shell commands.
+            let setup: GobyCommandRunner = { args in
+                do {
+                    let setupOptions = try GobyCLIOptions(args + (options.storePath.map { ["--store", $0] } ?? []))
+                    if args.first == "logs" || args.first == "config" { return try reporting(setupOptions, reporter: reporter) }
+                    return try await GobyCLISetupCommands(configuration: configuration, options: setupOptions,
+                                                          io: .standard(reporter: reporter)).execute()
+                } catch {
+                    FileHandle.standardError.write(Data((WorkflowTextFormatter.terminalSafe(error.localizedDescription) + "\n").utf8))
+                    return GobyCLIExitCode.forError(error)
+                }
+            }
             let workflow = GobyTerminalWorkflow(transport: transport, options: options, directory: directory,
-                                                io: .standard(reporter: reporter), preferences: try GobyCLIProjectPreferences(store: configuration.storeDirectory))
+                                                io: .standard(reporter: reporter), preferences: try GobyCLIProjectPreferences(store: configuration.storeDirectory),
+                                                setupCommands: setup)
             router.workflow = workflow
             return await workflow.execute()
         } catch {
@@ -163,7 +177,7 @@ public enum GobyCLIEntrypoint {
     }
 
     /// goby config reports on|off|status, and goby logs [--path].
-    private static func reporting(_ options: GobyCLIOptions, reporter: GobyReporter) throws -> Int32 {
+    static func reporting(_ options: GobyCLIOptions, reporter: GobyReporter) throws -> Int32 {
         let args = options.arguments
         if args.first == "logs" {
             let lines = reporter.recentLog()

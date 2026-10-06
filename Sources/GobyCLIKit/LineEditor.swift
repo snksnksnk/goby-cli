@@ -22,11 +22,33 @@ public final class GobyLineEditor: Sendable {
         public let name: String
         public let usage: String
         public let summary: String
-        public init(name: String, usage: String, summary: String) {
-            self.name = name; self.usage = usage; self.summary = summary
+        /// Values offered after the command, such as providers for /login.
+        public let arguments: [Argument]
+        public init(name: String, usage: String, summary: String, arguments: [Argument] = []) {
+            self.name = name; self.usage = usage; self.summary = summary; self.arguments = arguments
         }
         /// Commands whose usage names an argument wait for it after completion.
         var takesArguments: Bool { usage.contains("<") || usage.contains("[") }
+    }
+
+    /// One suggested argument; `then` lists what may follow it.
+    public struct Argument: Sendable {
+        public let value: String
+        public let summary: String
+        public let then: [Argument]
+        public init(_ value: String, _ summary: String = "", then: [Argument] = []) {
+            self.value = value; self.summary = summary; self.then = then
+        }
+    }
+
+    /// A row in the list: what it shows, and the whole line once accepted.
+    public struct Suggestion: Equatable, Sendable {
+        public let name: String
+        public let display: String
+        public let summary: String
+        public let completion: String
+        /// Accepting it leaves room to type or pick what comes next.
+        public let waitsForMore: Bool
     }
 
     private struct State {
@@ -46,17 +68,33 @@ public final class GobyLineEditor: Sendable {
     // MARK: Pure editing model (tested without a terminal)
 
     /// Commands matching the typed `/word`, best first: prefix, then contains.
-    public func suggestions(for buffer: String) -> [Command] {
-        guard buffer.hasPrefix("/"), !buffer.contains(" ") else { return [] }
-        let typed = buffer.dropFirst().lowercased()
-        let prefix = commands.filter { $0.name.hasPrefix(typed) }
-        let contains = typed.isEmpty ? [] : commands.filter { !$0.name.hasPrefix(typed) && $0.name.contains(typed) }
-        return Array((prefix + contains).prefix(Self.menuLimit))
-    }
-
-    /// The buffer after accepting a suggestion.
-    public static func completion(for command: Command) -> String {
-        "/" + command.name + (command.takesArguments ? " " : "")
+    /// After a command and a space, its known arguments, level by level.
+    public func suggestions(for buffer: String) -> [Suggestion] {
+        guard buffer.hasPrefix("/") else { return [] }
+        let tokens = buffer.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        if tokens.count == 1 {
+            let typed = buffer.dropFirst().lowercased()
+            let prefix = commands.filter { $0.name.hasPrefix(typed) }
+            let contains = typed.isEmpty ? [] : commands.filter { !$0.name.hasPrefix(typed) && $0.name.contains(typed) }
+            return (prefix + contains).prefix(Self.menuLimit).map {
+                Suggestion(name: $0.name, display: $0.usage, summary: $0.summary,
+                           completion: "/" + $0.name + ($0.takesArguments ? " " : ""), waitsForMore: $0.takesArguments)
+            }
+        }
+        guard let command = commands.first(where: { "/" + $0.name == tokens[0].lowercased() }) else { return [] }
+        // Walk the arguments already typed, then match the last, partial one.
+        var level = command.arguments
+        for token in tokens.dropFirst().dropLast() {
+            guard let match = level.first(where: { $0.value.lowercased() == token.lowercased() }) else { return [] }
+            level = match.then
+        }
+        let partial = tokens.last?.lowercased() ?? ""
+        let head = tokens.dropLast().joined(separator: " ") + " "
+        return level.filter { $0.value.lowercased().hasPrefix(partial) && $0.value.lowercased() != partial }
+            .prefix(Self.menuLimit).map {
+                Suggestion(name: $0.value, display: $0.value, summary: $0.summary,
+                           completion: head + $0.value + ($0.then.isEmpty ? "" : " "), waitsForMore: !$0.then.isEmpty)
+            }
     }
 
     // MARK: Terminal loop
@@ -81,7 +119,7 @@ public final class GobyLineEditor: Sendable {
         let promptWidth = Self.visibleWidth(prompt)
 
         func currentText() -> String { String(buffer) }
-        func menu() -> [Command] { menuDismissed ? [] : suggestions(for: currentText()) }
+        func menu() -> [Suggestion] { menuDismissed ? [] : suggestions(for: currentText()) }
 
         func render() {
             var out = ""
@@ -95,10 +133,10 @@ public final class GobyLineEditor: Sendable {
             let endRow = endColumn / width
             var below = 0
             if !items.isEmpty {
-                let nameWidth = (items.map(\.usage.count).max() ?? 0) + 2
+                let nameWidth = (items.map(\.display.count).max() ?? 0) + 2
                 for (index, item) in items.enumerated() {
                     let selected = index == selection
-                    let usage = item.usage.padding(toLength: nameWidth, withPad: " ", startingAt: 0)
+                    let usage = item.display.padding(toLength: nameWidth, withPad: " ", startingAt: 0)
                     let room = max(0, width - 4 - nameWidth)
                     let summary = item.summary.count > room ? String(item.summary.prefix(max(0, room - 1))) + "…" : item.summary
                     let marker = selected ? style.accent("› ") : "  "
@@ -128,8 +166,8 @@ public final class GobyLineEditor: Sendable {
             FileHandle.standardError.write(Data(out.utf8))
         }
 
-        func accept(_ command: Command) {
-            buffer = Array(Self.completion(for: command))
+        func accept(_ suggestion: Suggestion) {
+            buffer = Array(suggestion.completion)
             cursor = buffer.count
             selection = 0
             menuDismissed = false
@@ -154,10 +192,9 @@ public final class GobyLineEditor: Sendable {
                 let items = menu()
                 if !items.isEmpty, selection < items.count {
                     let chosen = items[selection]
-                    let typed = String(currentText().dropFirst())
-                    if typed != chosen.name {
+                    if currentText() != chosen.completion.trimmingCharacters(in: .whitespaces) {
                         accept(chosen)
-                        if chosen.takesArguments { break }
+                        if chosen.waitsForMore { break }
                     }
                 }
                 let line = currentText()

@@ -91,10 +91,13 @@ Session commands mirror the Goby app's screens. Each is also a subcommand
 | `/instructions`, `/resources`, `/groups`, `/handoffs`, `/health` | Instructions, Shared Folders, Project Groups, Handoffs and System Health |
 | `/approve`, `/deny`, `/pause`, `/resume`, `/cancel`, `/follow-up` | Run controls and approvals |
 | `/commit`, `/push`, `/ask`, `/use` | Delivery, Temporary Chat and default scope |
+| `/login`, `/logout`, `/doctor`, `/logs`, `/config` | Provider Connections sign-in, setup checks, the local log and report preference |
 
 Type `/` at the prompt to see matching commands as you type. Tab or → accepts
 the highlighted one, ↑ ↓ move through the list, Esc closes it, and Enter runs
-it. Without a list, ↑ ↓ walk back through earlier requests in the session.
+it. Suggestions continue after the command: `/login ` offers the providers,
+`/login claude ` offers `--plan` and `--api-key`, and `/use`, `/agents`, `/runs`
+and `/branches` offer your project names. Without a list, ↑ ↓ walk back through earlier requests in the session.
 
 Run IDs can be shortened to any unambiguous prefix, such as the eight
 characters `/runs` shows. Without an ID, `/show` and `/diff` use the active run,
