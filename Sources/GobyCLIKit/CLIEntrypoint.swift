@@ -28,6 +28,7 @@ public enum GobyCLIEntrypoint {
     goby login copilot [--token]            reuses an existing gh login
     goby diagnostics | ask "<question>" | ask end
     goby logs | config reports on|off|status    local log and opt-in error reports
+    goby runtime status | install|remove <claude|copilot>   Claude and Copilot runtimes
     goby commit <run> | push <run> [--yes]
     goby import-agents | use <project-id>... | use cwd
     goby uninstall [--yes] | --version
@@ -95,7 +96,7 @@ public enum GobyCLIEntrypoint {
                 try await service.run()
                 return 0
             }
-            if ["doctor", "login", "logout", "uninstall"].contains(options.arguments.first ?? "") {
+            if ["doctor", "login", "logout", "uninstall", "runtime"].contains(options.arguments.first ?? "") {
                 return try await GobyCLISetupCommands(configuration: configuration, options: options, io: .standard(reporter: reporter)).execute()
             }
             signal(SIGINT, SIG_IGN)

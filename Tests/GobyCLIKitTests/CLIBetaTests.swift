@@ -191,10 +191,16 @@ struct CLIBetaTests {
         try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: true)
         try Data("pinned bytes".utf8).write(to: runtime.appending(path: "entry.js"))
         let script = repositoryRoot.appending(path: "Scripts/generate-cli-manifest.py")
-        let arguments = [script.path, runtime.path, root.appending(path: "generated.swift").path, root.appending(path: "manifest.json").path, "--version", "0.2.0-beta.1", "--commit", String(repeating: "a", count: 40)]
+        let arguments = [script.path, "--swift", root.appending(path: "generated.swift").path, "--json", root.appending(path: "manifest.json").path,
+                         "--version", "0.2.0-beta.1", "--commit", String(repeating: "a", count: 40),
+                         "--download-base", "https://example.invalid/releases", "--runtime", "arm64=" + runtime.path]
         #expect(try tool("/usr/bin/python3", arguments) == 0)
-        let manifest = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: root.appending(path: "manifest.json")))
+        struct Sidecar: Decodable { let manifests: [String: [String: String]] }
+        let manifest = try #require(try JSONDecoder().decode(Sidecar.self, from: Data(contentsOf: root.appending(path: "manifest.json"))).manifests["arm64"])
         #expect(manifest.count == 1)
+        // Non-https download locations are refused at build time.
+        var insecure = arguments; insecure[insecure.firstIndex(of: "https://example.invalid/releases")!] = "http://example.invalid"
+        #expect(try tool("/usr/bin/python3", insecure) != 0)
         try StandaloneProviderRuntimeTrustPolicy(manifest: manifest).validateProviderRuntime(bundleURL: runtime, runtimeURLs: [runtime.appending(path: "entry.js")])
         try FileManager.default.createSymbolicLink(at: runtime.appending(path: "link.js"), withDestinationURL: runtime.appending(path: "entry.js"))
         #expect(try tool("/usr/bin/python3", arguments) != 0)

@@ -156,11 +156,10 @@ public final class GADFreshStandaloneRuntime {
         return cache.appending(path: "com.goby.cli/" + digest, directoryHint: .isDirectory)
     }
 
+    /// Claude and Copilot runtimes are downloaded on demand into a
+    /// per-version folder, then verified against the signed manifest.
     private nonisolated static func installedProviderRuntimeRoot() -> URL? {
-        guard let executable = Bundle.main.executableURL else { return nil }
-        return executable.resolvingSymlinksInPath().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "libexec/provider-runtime", directoryHint: .isDirectory)
+        StandaloneProviderRuntimeRelease.root()
     }
 
     public func stop() async throws {

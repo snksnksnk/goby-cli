@@ -553,6 +553,7 @@ public actor GobyTerminalWorkflow {
         ("login", "/login <claude|codex|copilot>", "sign in, reusing an existing plan, login or key"),
         ("logout", "/logout <provider>", "remove goby's saved credential for a provider"),
         ("doctor", "/doctor", "check providers, runtime and setup"),
+        ("runtime", "/runtime status | install <claude|copilot>", "download or remove a provider runtime"),
         ("logs", "/logs", "recent entries from the local log"),
         ("config", "/config reports on|off|status", "error report preference"),
         ("clear", "/clear", "clear the screen"),
@@ -578,6 +579,9 @@ public actor GobyTerminalWorkflow {
             "provider": providers,
             "model": [.init("default", "the provider's own choice")] + models,
             "config": [.init("reports", then: [.init("on"), .init("off"), .init("status")])],
+            "runtime": [.init("status", "what's installed"),
+                        .init("install", "download a runtime", then: [.init("claude", "about 200 MB"), .init("copilot", "about 80 MB")]),
+                        .init("remove", "delete a runtime", then: [.init("claude"), .init("copilot")])],
             "use": [.init("cwd", "back to the current repository")] + projects,
             "agents": projects, "runs": projects, "branches": projects,
         ]
@@ -609,7 +613,7 @@ public actor GobyTerminalWorkflow {
             io.write("\u{1B}[2J\u{1B}[H")
         case "status", "home":
             try await status()
-        case "login", "logout", "doctor", "logs", "config":
+        case "login", "logout", "doctor", "logs", "config", "runtime":
             guard let setupCommands else { throw GobyTerminalError("Run goby \(name) from your shell.") }
             spinner.stop()
             _ = await setupCommands([name] + rest)

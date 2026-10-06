@@ -14,9 +14,6 @@ public enum GobyCLIEnvironment {
         let digest = SHA256.hash(data: Data(canonical.path.utf8)).map { String(format: "%02x", $0) }.joined()
         return .isolatedCLI(scopeDigest: digest)
     }
-    public static func runtimeRoot(executable: URL) -> URL {
-        executable.resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent().appending(path: "libexec/provider-runtime")
-    }
     public static var version: String {
 #if GOBY_CLI_DISTRIBUTION
         GobyCLICompiledRuntime.version
@@ -89,9 +86,11 @@ public actor GobyCLISetupCommands {
     private let options: GobyCLIOptions
     private let io: GobyTerminalIO
     private let credentials: any ProviderCredentialRepository
+    private let runtimes: GobyRuntimeInstaller
     public init(configuration: GobyCLIConfiguration, options: GobyCLIOptions, io: GobyTerminalIO,
-                credentials: (any ProviderCredentialRepository)? = nil) {
-        self.configuration = configuration; self.options = options; self.io = io
+                credentials: (any ProviderCredentialRepository)? = nil,
+                runtimes: GobyRuntimeInstaller = GobyRuntimeInstaller()) {
+        self.configuration = configuration; self.options = options; self.io = io; self.runtimes = runtimes
         self.credentials = credentials ?? KeychainProviderCredentialStore(
             service: GobyCLIEnvironment.keychainNamespace(store: configuration.storeDirectory).providerCredentials, accessGroup: nil)
     }
@@ -121,17 +120,26 @@ public actor GobyCLISetupCommands {
             let policy = StandaloneProviderRuntimeTrustPolicy()
             let codex = policy.codexExecutableURL()
             let signed = (try? policy.codexValidator().validate(executableURL: codex)) != nil
-            let root = GobyCLIEnvironment.runtimeRoot(executable: configuration.executableURL)
-            let node = root.appending(path: "ClaudeAgentSDKBridge/bin/node")
-            let bridge = root.appending(path: "ClaudeAgentSDKBridge/index.js")
-            let runtime = (try? policy.validateProviderRuntime(bundleURL: root, runtimeURLs: [node, bridge])) != nil
+            let runtimeChecks = GobyRuntimeInstaller.Component.allCases.map { component -> GobyDoctorCheck in
+                switch runtimes.status(component) {
+                case .installed:
+                    return .init(name: "\(component.displayName) runtime", passed: true, action: "Installed and verified.")
+                case .notInstalled:
+                    return .init(name: "\(component.displayName) runtime", passed: true,
+                                 action: "Optional. goby runtime install \(component.rawValue) (about \(component.approximateMegabytes) MB), or it's offered at goby login \(component.rawValue).")
+                case .unavailable:
+                    return .init(name: "\(component.displayName) runtime", passed: false, action: "This is a source build without runtime packages. Install goby with Homebrew to use \(component.displayName).")
+                }
+            }
             let check = [GobyDoctorCheck(name: "macOS 26+", passed: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26, action: "Use macOS 26 or later."),
-                .init(name: "Signed Codex", passed: signed, action: "Install Codex: brew install --cask codex; then codex login. The installed executable must pass the OpenAI signature check."),
-                .init(name: "Pinned provider runtime", passed: runtime, action: "Install the signed Goby CLI release to enable Claude and Copilot."),
+                .init(name: "Signed Codex", passed: signed, action: "Install Codex: brew install --cask codex; then codex login. The installed executable must pass the OpenAI signature check.")]
+                + runtimeChecks + [
                 .init(name: "CLI namespace", passed: true, action: "The CLI has separate storage and login-Keychain items."),
                 .init(name: "Provider terms", passed: false, action: "Claude accepts your plan token or an API key. Check each provider's terms before sharing builds that sign in with a plan (ADR-024 question 1).")]
             try emit("doctor", check, check.map { "\($0.passed ? "✓" : "!") \($0.name) · \($0.action)" }.joined(separator: "\n"))
-            return runtime ? 0 : 4
+            return check.first?.passed == true ? 0 : 4
+        case "runtime":
+            return try await runtimeCommand()
         case "logout":
             let provider = try providerArgument()
             for kind in ProviderCredentialKind.allCases { try await credentials.removeCredential(for: provider, kind: kind) }
@@ -142,6 +150,14 @@ public actor GobyCLISetupCommands {
             let provider = try providerArgument()
             guard io.interactive, !options.json else { throw GobyTerminalError("Provider sign-in needs an interactive terminal. Credentials are never accepted in command arguments.") }
             let method = options.loginMethod
+            if let component = GobyRuntimeInstaller.Component(provider: provider.rawValue), runtimes.status(component) == .notInstalled {
+                let size = component.approximateMegabytes
+                if await confirmed("\(component.displayName) needs its runtime, a one-time download of about \(size) MB. Download it now? [Y/n] ", defaultYes: true) {
+                    try await installRuntime(component)
+                } else {
+                    io.write("Skipped. Install it later with goby runtime install \(component.rawValue); \(component.displayName) won't run until then.")
+                }
+            }
             let message: String
             switch provider {
             case .claude:
@@ -218,6 +234,76 @@ public actor GobyCLISetupCommands {
         default: throw GobyTerminalError("Unknown setup command.")
         }
     }
+    /// goby runtime [status] | install <claude|copilot> | remove <claude|copilot>
+    private func runtimeCommand() async throws -> Int32 {
+        let args = Array(options.arguments.dropFirst())
+        let action = args.first ?? "status"
+        if action == "status" {
+            let rows = GobyRuntimeInstaller.Component.allCases.map { component -> (String, String) in
+                let state = switch runtimes.status(component) {
+                case .installed: "installed"
+                case .notInstalled: "not installed · goby runtime install \(component.rawValue) (about \(component.approximateMegabytes) MB)"
+                case .unavailable: "unavailable in this build"
+                }
+                return (component.rawValue, state)
+            }
+            try emit("runtimes", Dictionary(uniqueKeysWithValues: rows), rows.map { "\($0.0): \($0.1)" }.joined(separator: "\n") + "\nCodex uses your installed Codex and needs no runtime.")
+            return 0
+        }
+        guard args.count == 2, let component = GobyRuntimeInstaller.Component(provider: args[1]) else {
+            throw GobyTerminalError("Usage: goby runtime status | install <claude|copilot> | remove <claude|copilot>")
+        }
+        switch action {
+        case "install":
+            try await installRuntime(component)
+            try emit("runtime-installed", component.rawValue, "\(component.displayName) runtime installed and verified.")
+        case "remove":
+            try runtimes.remove(component)
+            await restartHostWhenIdle()
+            try emit("runtime-removed", component.rawValue, "Removed the \(component.displayName) runtime. Reinstall anytime with goby runtime install \(component.rawValue).")
+        default:
+            throw GobyTerminalError("Usage: goby runtime status | install <claude|copilot> | remove <claude|copilot>")
+        }
+        return 0
+    }
+
+    private func installRuntime(_ component: GobyRuntimeInstaller.Component) async throws {
+        let showProgress = io.interactive && !options.json && isatty(STDERR_FILENO) != 0
+        let started = ContinuousClock.now
+        try await runtimes.install(component) { received, total in
+            guard showProgress else { return }
+            let megabytes = Double(received) / 1_048_576
+            let line: String
+            if let total, total > 0 {
+                let percent = Int(Double(received) / Double(total) * 100)
+                line = String(format: "\r\u{1B}[2KDownloading %@ runtime… %d%% (%.0f / %.0f MB)", component.displayName, percent, megabytes, Double(total) / 1_048_576)
+            } else {
+                line = String(format: "\r\u{1B}[2KDownloading %@ runtime… %.0f MB", component.displayName, megabytes)
+            }
+            FileHandle.standardError.write(Data(line.utf8))
+        }
+        if showProgress {
+            let seconds = Int((ContinuousClock.now - started).components.seconds)
+            FileHandle.standardError.write(Data("\r\u{1B}[2KDownloaded and verified the \(component.displayName) runtime in \(seconds)s.\n".utf8))
+        }
+        await restartHostWhenIdle()
+    }
+
+    /// The host loads runtimes when it starts. A running host finishes its
+    /// work, then stops; the next goby command starts it with the new runtime.
+    private func restartHostWhenIdle() async {
+        let transport = GobyUnixSocketTransport(socketURL: configuration.socketURL)
+        guard (try? await transport.exchange(.init(operation: .ping))) != nil else { return }
+        _ = try? await transport.exchange(.init(operation: .localAdministration(.preparePermanentHostShutdown)))
+    }
+
+    private func confirmed(_ prompt: String, defaultYes: Bool) async -> Bool {
+        if options.yes { return true }
+        guard io.interactive, !options.json, let answer = await io.read(prompt) else { return false }
+        let value = answer.trimmingCharacters(in: .whitespaces).lowercased()
+        return value.isEmpty ? defaultYes : ["y", "yes"].contains(value)
+    }
+
     private func providerArgument() throws -> AgentProviderID {
         guard options.arguments.count == 2 else { throw GobyTerminalError("Usage: goby login codex [--device|--api-key] | claude [--plan|--api-key] | copilot [--token]; goby logout <provider>") }
         let provider = options.arguments[1] == "copilot" ? AgentProviderID.githubCopilot : AgentProviderID(rawValue: options.arguments[1])

@@ -21,15 +21,44 @@ public struct AppProviderRuntimeTrustPolicy: ProviderRuntimeTrustPolicy {
     }
 }
 
-public struct StandaloneProviderRuntimeTrustPolicy: ProviderRuntimeTrustPolicy {
-    /// Values are generated from the pinned release runtime before signing.
-    /// Source builds fail closed. The distribution flag requires a generated
-    /// Swift constant from the already signed, pinned payload, never a sidecar.
-#if GOBY_CLI_DISTRIBUTION
-    public static var compiledManifest: [String: String] { GobyCLICompiledRuntime.manifest }
+/// What a distribution build of goby knows about its downloadable runtimes.
+/// Source builds have none and fail closed. Values come from the generated,
+/// signed release constant, never from a file next to the binary.
+public enum StandaloneProviderRuntimeRelease {
+    /// This Mac's architecture, as used in runtime package names.
+    public static var architecture: String {
+#if arch(arm64)
+        "arm64"
 #else
-    public static let compiledManifest: [String: String] = [:]
+        "x86_64"
 #endif
+    }
+#if GOBY_CLI_DISTRIBUTION
+    public static var version: String { GobyCLICompiledRuntime.version }
+    /// Per-architecture manifests: relative path → SHA-256 for every file.
+    public static var manifests: [String: [String: String]] { GobyCLICompiledRuntime.manifests }
+    /// "claude-arm64" → SHA-256 of that release package.
+    public static var archives: [String: String] { GobyCLICompiledRuntime.archives }
+    public static var downloadBase: URL? { URL(string: GobyCLICompiledRuntime.downloadBase) }
+#else
+    public static let version = "development"
+    public static let manifests: [String: [String: String]] = [:]
+    public static let archives: [String: String] = [:]
+    public static let downloadBase: URL? = nil
+#endif
+
+    /// Runtimes live outside the Homebrew prefix, one folder per goby version.
+    public static func root(fileManager: FileManager = .default) -> URL {
+        let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.homeDirectoryForCurrentUser.appending(path: "Library/Application Support", directoryHint: .isDirectory)
+        return support.appending(path: "Goby CLI Runtime/\(version)", directoryHint: .isDirectory)
+    }
+}
+
+public struct StandaloneProviderRuntimeTrustPolicy: ProviderRuntimeTrustPolicy {
+    public static var compiledManifest: [String: String] {
+        StandaloneProviderRuntimeRelease.manifests[StandaloneProviderRuntimeRelease.architecture] ?? [:]
+    }
     private let manifest: [String: String]
 
     public init(manifest: [String: String] = Self.compiledManifest) {
@@ -41,6 +70,10 @@ public struct StandaloneProviderRuntimeTrustPolicy: ProviderRuntimeTrustPolicy {
         StandaloneCodexRuntimeIntegrityValidator()
     }
 
+    /// Runtimes are installed one at a time, so only the components the
+    /// runtime URLs belong to (their first path element under the root) are
+    /// checked, each against every manifest entry for it. Nothing else may
+    /// sit at the root, so no stray module can shadow a bridge dependency.
     public func validateProviderRuntime(bundleURL: URL, runtimeURLs: [URL]) throws {
         let root = bundleURL
         var rootInfo = stat()
@@ -49,44 +82,78 @@ public struct StandaloneProviderRuntimeTrustPolicy: ProviderRuntimeTrustPolicy {
         let prefix = canonicalRoot + (canonicalRoot.hasSuffix("/") ? "" : "/")
         let logicalRoot = root.path(percentEncoded: false)
         let logicalPrefix = logicalRoot + (logicalRoot.hasSuffix("/") ? "" : "/")
+
+        let allComponents = Set(manifest.keys.compactMap { $0.split(separator: "/").first.map(String.init) })
+        let topLevel = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        guard topLevel.allSatisfy({ allComponents.contains($0) || $0 == Self.finderMetadata }) else { throw ProviderRuntimeIntegrityError.invalidBundle }
+
+        var components = Set<String>()
+        for runtimeURL in runtimeURLs {
+            let path = runtimeURL.path(percentEncoded: false)
+            guard path.hasPrefix(logicalPrefix),
+                  let component = path.dropFirst(logicalPrefix.count).split(separator: "/").first.map(String.init),
+                  allComponents.contains(component) else { throw ProviderRuntimeIntegrityError.invalidBundle }
+            components.insert(component)
+        }
+        let expected = manifest.filter { key, _ in
+            components.contains(key.split(separator: "/").first.map(String.init) ?? "")
+        }
+
         var seen = Set<String>()
-        guard let files = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
-            options: []
-        ) else { throw ProviderRuntimeIntegrityError.invalidBundle }
-        for case let file as URL in files {
-            guard let path = Self.canonicalPath(file), path.hasPrefix(prefix),
-                  let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
-                  values.isSymbolicLink != true else {
-                throw ProviderRuntimeIntegrityError.invalidBundle
-            }
+        for component in components.sorted() {
+            let componentURL = root.appending(path: component)
             var info = stat()
-            guard lstat(file.path, &info) == 0, info.st_mode & S_IFMT != S_IFLNK else { throw ProviderRuntimeIntegrityError.invalidBundle }
-            guard values.isRegularFile == true else {
-                guard info.st_mode & S_IFMT == S_IFDIR else { throw ProviderRuntimeIntegrityError.invalidBundle }
+            guard lstat(componentURL.path, &info) == 0, info.st_mode & S_IFMT != S_IFLNK else { throw ProviderRuntimeIntegrityError.invalidBundle }
+            if info.st_mode & S_IFMT == S_IFREG {
+                try check(file: componentURL, prefix: prefix, expected: expected, seen: &seen)
                 continue
             }
-            let relative = String(path.dropFirst(prefix.count))
-            guard let expected = manifest[relative],
-                  expected.count == 64,
-                  let data = try? Data(contentsOf: file),
-                  SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == expected else {
+            guard info.st_mode & S_IFMT == S_IFDIR,
+                  let files = FileManager.default.enumerator(at: componentURL,
+                      includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: []) else {
                 throw ProviderRuntimeIntegrityError.invalidBundle
             }
-            seen.insert(relative)
+            for case let file as URL in files {
+                var fileInfo = stat()
+                guard lstat(file.path, &fileInfo) == 0, fileInfo.st_mode & S_IFMT != S_IFLNK else { throw ProviderRuntimeIntegrityError.invalidBundle }
+                if fileInfo.st_mode & S_IFMT == S_IFDIR { continue }
+                // Finder metadata is not code and is never loaded.
+                if file.lastPathComponent == Self.finderMetadata, fileInfo.st_mode & S_IFMT == S_IFREG { continue }
+                guard fileInfo.st_mode & S_IFMT == S_IFREG else { throw ProviderRuntimeIntegrityError.invalidBundle }
+                try check(file: file, prefix: prefix, expected: expected, seen: &seen)
+            }
         }
-        guard seen == Set(manifest.keys) else { throw ProviderRuntimeIntegrityError.invalidBundle }
+        guard !expected.isEmpty, seen == Set(expected.keys) else { throw ProviderRuntimeIntegrityError.invalidBundle }
         for runtimeURL in runtimeURLs {
-            let runtime = runtimeURL
-            let path = runtime.path(percentEncoded: false)
-            guard path.hasPrefix(logicalPrefix),
-                  seen.contains(String(path.dropFirst(logicalPrefix.count))),
-                  Self.canonicalPath(runtime) == prefix + String(path.dropFirst(logicalPrefix.count)) else {
+            let path = runtimeURL.path(percentEncoded: false)
+            guard seen.contains(String(path.dropFirst(logicalPrefix.count))),
+                  Self.canonicalPath(runtimeURL) == prefix + String(path.dropFirst(logicalPrefix.count)) else {
                 throw ProviderRuntimeIntegrityError.invalidBundle
             }
         }
     }
+
+    private static let finderMetadata = ".DS_Store"
+
+    private func check(file: URL, prefix: String, expected: [String: String], seen: inout Set<String>) throws {
+        guard let path = Self.canonicalPath(file), path.hasPrefix(prefix) else { throw ProviderRuntimeIntegrityError.invalidBundle }
+        let relative = String(path.dropFirst(prefix.count))
+        guard let digest = expected[relative], digest.count == 64,
+              try Self.sha256(of: file) == digest else {
+            throw ProviderRuntimeIntegrityError.invalidBundle
+        }
+        seen.insert(relative)
+    }
+
+    /// Streams the file, so large native runtimes are not loaded whole.
+    static func sha256(of file: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: file)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try handle.read(upToCount: 4 * 1_024 * 1_024), !chunk.isEmpty { hasher.update(data: chunk) }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
     /// Foundation normalizes /private/var aliases inconsistently between
     /// directory URLs and enumeration. POSIX paths retain filesystem identity.
     private static func canonicalPath(_ url: URL) -> String? {
@@ -94,7 +161,6 @@ public struct StandaloneProviderRuntimeTrustPolicy: ProviderRuntimeTrustPolicy {
         defer { free(path) }
         return String(cString: path)
     }
-
 }
 
 public enum StandaloneCodexLocator {

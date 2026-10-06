@@ -10,7 +10,6 @@ class Goby < Formula
 
   def install
     bin.install "bin/goby"
-    libexec.install "libexec/provider-runtime"
     # SwiftPM's module bundle accessor searches beside the executable.
     Pathname.glob("bin/*.bundle").each { |bundle| bin.install bundle }
     bash_completion.install "completions/goby.bash" => "goby"
@@ -30,9 +29,13 @@ class Goby < Formula
   def caveats
     <<~EOS
       Run goby doctor, then goby login codex|claude|copilot.
-      Claude uses an Anthropic API key. CLI data and Keychain items are separate
+      Codex uses your installed Codex. Claude and Copilot runtimes download once,
+      on demand, when you sign in (goby runtime install claude|copilot), and are
+      checked against hashes built into goby. Claude takes a plan token from
+      claude setup-token or an API key. CLI data and Keychain items are separate
       from the Goby app and survive uninstall. Data:
         ~/Library/Application Support/Goby CLI/
+        ~/Library/Application Support/Goby CLI Runtime/
       For automations: brew services start goby
       Before uninstall: finish active work, then goby uninstall
     EOS
