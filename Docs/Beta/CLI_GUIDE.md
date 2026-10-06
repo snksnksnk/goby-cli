@@ -5,26 +5,26 @@ account. It does not contact the author's Mac or enable Remote Access.
 
 ## Release status
 
-The CLI lives in its own repository, `snksnksnk/goby-cli`. A local universal
-candidate has passed Developer ID signing, Apple notarization, stapling,
-runtime-manifest verification and a real Codex workflow. Public GitHub assets
-and the `snksnksnk/homebrew-goby` tap require release approval and publication.
-Until then, use a locally verified artifact or the source build; the Homebrew
-command below becomes available only after publication. Provider terms question
-1 in ADR-024 remains a friends-beta gate. Claude subscription credentials are
-disabled; use an Anthropic API key.
+goby is published as a beta: source at https://github.com/snksnksnk/goby-cli,
+signed and notarized releases on its Releases page, and the Homebrew tap
+`snksnksnk/homebrew-goby`. Claude accepts your plan token (from
+`claude setup-token`) or an API key; check each provider's terms before
+sharing builds that sign in with a plan (ADR-024 question 1).
 
 ## Install and first request
 
-After the signed release and tap are published:
-
 ```sh
-brew install snksnksnk/goby/goby
+brew tap snksnksnk/goby
+brew install goby
 goby doctor
 goby login codex
 cd /path/to/your/repository
 goby "Summarize the README without changing any files."
 ```
+
+Adding the tap is a one-time step; after it, `brew install goby`,
+`brew upgrade goby` and `brew uninstall goby` work by name. `brew install
+snksnksnk/goby/goby` does both steps in one command.
 
 Goby offers to register the repository in its separate CLI store, shows its
 plan, asks for a scope decision when required, and prints one result. A subfolder

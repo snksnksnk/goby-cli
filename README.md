@@ -1,10 +1,21 @@
 # Goby CLI
 
 `goby` runs Goby's agent host on your own Mac, from the terminal, for your own
-repositories, with your own Codex, Claude (API key) or GitHub Copilot account.
+repositories, with your own Codex, Claude or GitHub Copilot account.
 It does not need the Goby app, the relay, or anyone else's Mac.
 
 Requires macOS 26 or later.
+
+## Install
+
+```sh
+brew tap snksnksnk/goby
+brew install goby
+```
+
+Then `goby doctor` and `goby login codex` (or `claude` / `copilot`). Update with
+`brew upgrade goby`. The one-line form `brew install snksnksnk/goby/goby` does
+both steps at once.
 
 Run `goby` on its own for an interactive session with Goby, a small lookout
 fish that keeps watch while your provider digs:
@@ -23,8 +34,8 @@ fish that keeps watch while your provider digs:
 ```
 
 ```sh
-goby doctor                         # check providers and the bundled runtime
-goby login codex                    # or: claude (API key) | copilot
+goby doctor                         # check providers and runtimes
+goby login codex                    # or: claude (plan token or API key) | copilot
 cd ~/code/my-app
 goby "fix the flaky login test"     # plan → confirm scope → run → one result
 goby status | watch | result <run> | diff <run>
