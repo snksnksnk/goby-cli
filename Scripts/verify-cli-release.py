@@ -93,12 +93,16 @@ with tempfile.TemporaryDirectory(prefix='goby-cli-handshake-') as home:
             assert any(row.get('result', {}).get('stopped') for row in rows), 'Bridge did not shut down'
 
 # End to end: the built goby installs a runtime from these packages and
-# accepts it, in a throwaway home folder.
+# accepts it, in a throwaway home folder. It runs through a symlink, the way
+# Homebrew puts goby on the PATH.
 with tempfile.TemporaryDirectory(prefix='goby-cli-install-') as home:
+    linked = Path(home, 'bin/goby')
+    linked.parent.mkdir()
+    linked.symlink_to(goby)
     environment = dict(os.environ, CFFIXED_USER_HOME=home, HOME=home,
                        GOBY_RUNTIME_DOWNLOAD_BASE=args.packages.resolve().as_uri())
     store = Path(home, 'store')
-    run = lambda *command: subprocess.run([str(goby), *command, '--json', '--store', str(store)], text=True, capture_output=True, env=environment, timeout=600)
+    run = lambda *command: subprocess.run([str(linked), *command, '--json', '--store', str(store)], text=True, capture_output=True, env=environment, timeout=600)
     result = run('runtime', 'install', 'claude')
     assert result.returncode == 0, 'goby could not install its Claude runtime: ' + result.stdout + result.stderr
     status = json.loads(run('runtime', 'status').stdout.splitlines()[-1])

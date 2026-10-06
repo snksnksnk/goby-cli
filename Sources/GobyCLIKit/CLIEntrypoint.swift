@@ -74,7 +74,8 @@ public enum GobyCLIEntrypoint {
                 try printValue(type: "help", value: help, json: options.json)
                 return 0
             }
-            guard let executable = Bundle.main.executableURL,
+            // Homebrew links bin/goby to the Cellar; identify the real file.
+            guard let executable = Bundle.main.executableURL?.resolvingSymlinksInPath(),
                   let identity = GADFileSystemIdentity.contentSHA256(at: executable, maximumBytes: 256 * 1_024 * 1_024) else {
                 throw GobyTerminalError("The CLI could not identify its executable.", code: 3)
             }
