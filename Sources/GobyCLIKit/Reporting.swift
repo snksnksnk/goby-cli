@@ -6,7 +6,7 @@ import Synchronization
 /// Where error reports go. Set after deploying Reporting/ (see its README).
 /// GOBY_REPORT_URL overrides the endpoint for testing.
 public enum GobyReportingConfiguration {
-    public static let endpoint: String? = nil
+    public static let endpoint: String? = "https://goby-reports.vercel.app/api/report"
     /// Identifies goby builds to the endpoint. Not a secret: it ships in
     /// every binary and only lets reports in, never out.
     public static let ingestKey = "goby-cli-ingest-v1"

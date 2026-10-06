@@ -41,5 +41,9 @@ provider, message, exitCode`
    `GobyReportingConfiguration.endpoint` (Sources/GobyCLIKit/Reporting.swift)
    and release a new build. Until then, reports stay queued locally.
 
+The current deployment is `https://goby-reports.vercel.app` (Vercel project
+`goby-reports`); the dashboard is its root page. After adding or changing
+storage or environment variables, redeploy so they take effect.
+
 To try a deployment before releasing, run any goby build with
 `GOBY_REPORT_URL=https://<your-project>.vercel.app/api/report`.
